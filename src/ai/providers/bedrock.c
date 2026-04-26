@@ -1,4 +1,5 @@
 #include "bedrock.h"
+#include "sigv4.h"
 #include "ai/types.h"
 #include "util/str.h"
 #include "util/http.h"
@@ -106,17 +107,51 @@ static int bedrock_stream(const Model *model, const Message *messages, int msg_c
     char *body_str = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
 
-    const char *headers[] = {
+    const char *base_headers[] = {
         "Content-Type: application/json",
         NULL,
     };
 
+    /* Sign the request with SigV4 */
+    const char *session_token = getenv("AWS_SESSION_TOKEN");
+    SigV4Request sig_req = {
+        .method = "POST",
+        .url = url,
+        .headers = base_headers,
+        .body = body_str,
+        .body_len = (int)strlen(body_str),
+        .region = region,
+        .service = "bedrock",
+        .access_key = access_key,
+        .secret_key = secret_key,
+        .session_token = session_token,
+    };
+
+    SigV4Headers signed_hdrs;
+    if (sigv4_sign_request(&sig_req, &signed_hdrs) != 0) {
+        LOG_ERROR("SigV4 signing failed");
+        free(body_str);
+        return -1;
+    }
+
+    int hdr_count = 0;
+    const char **merged_headers = sigv4_merge_headers(base_headers, &signed_hdrs, &hdr_count);
+
     BedrockStreamCtx ctx = { .cb = cb, .userdata = userdata };
 
-    SSERequest sse_req = { .url = url, .headers = headers, .body = body_str, .body_len = strlen(body_str), .on_event = bedrock_sse_handler, .ctx = &ctx };
+    SSERequest sse_req = {
+        .url = url,
+        .headers = merged_headers,
+        .body = body_str,
+        .body_len = strlen(body_str),
+        .on_event = bedrock_sse_handler,
+        .ctx = &ctx,
+    };
     int result = http_stream_sse(&sse_req);
 
     free(body_str);
+    free(merged_headers);
+    sigv4_headers_free(&signed_hdrs);
     if (ctx.partial) message_free(ctx.partial);
 
     return result;

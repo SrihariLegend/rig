@@ -11,6 +11,8 @@
 #include "harness/config.h"
 #include "harness/tools/tools.h"
 #include "harness/modes/print.h"
+#include "harness/modes/interactive.h"
+#include "pi.h"
 #include "util/http.h"
 #include "util/log.h"
 
@@ -21,6 +23,7 @@ static void usage(const char *prog) {
         "Options:\n"
         "  -p, --print          Print mode (single-shot, output to stdout)\n"
         "  -m, --model MODEL    Model to use (e.g., claude-opus-4-7, claude-sonnet-4-6)\n"
+        "  -s, --session ID     Resume an existing session by ID\n"
         "  --provider PROVIDER  Provider (e.g., anthropic, openai)\n"
         "  --thinking LEVEL     Thinking level (off, minimal, low, medium, high, xhigh)\n"
         "  --json               JSON event output mode\n"
@@ -29,10 +32,12 @@ static void usage(const char *prog) {
         "  -h, --help           Show this help\n"
         "\n"
         "Examples:\n"
+        "  %s                                   Interactive mode\n"
+        "  %s --session abc123                   Resume session\n"
         "  %s -p \"What is 2+2?\"\n"
         "  %s -p -m claude-sonnet-4-6 \"Explain quicksort\"\n"
         "  echo \"Fix this bug\" | %s -p\n"
-        "\n", prog, prog, prog, prog);
+        "\n", prog, prog, prog, prog, prog);
 }
 
 static ThinkingLevel parse_thinking(const char *s) {
@@ -54,12 +59,14 @@ int main(int argc, char **argv) {
     const char *model_pattern = NULL;
     const char *provider = NULL;
     const char *thinking_str = NULL;
+    const char *session_id = NULL;
 
     static struct option long_opts[] = {
         {"print",    no_argument,       0, 'p'},
         {"model",    required_argument, 0, 'm'},
         {"provider", required_argument, 0, 'P'},
         {"thinking", required_argument, 0, 't'},
+        {"session",  required_argument, 0, 's'},
         {"json",     no_argument,       0, 'j'},
         {"no-tools", no_argument,       0, 'T'},
         {"verbose",  no_argument,       0, 'v'},
@@ -68,12 +75,13 @@ int main(int argc, char **argv) {
     };
 
     int c;
-    while ((c = getopt_long(argc, argv, "pm:vhj", long_opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "pm:s:vhj", long_opts, NULL)) != -1) {
         switch (c) {
         case 'p': print_mode = true; break;
         case 'm': model_pattern = optarg; break;
         case 'P': provider = optarg; break;
         case 't': thinking_str = optarg; break;
+        case 's': session_id = optarg; break;
         case 'j': json_mode = true; print_mode = true; break;
         case 'T': no_tools = true; break;
         case 'v': pi_log_set_level(LOG_DEBUG); break;
@@ -99,9 +107,14 @@ int main(int argc, char **argv) {
     }
 
     if (!print_mode) {
-        fprintf(stderr, "Interactive mode not yet implemented. Use -p for print mode.\n");
-        free(prompt == argv[optind] ? NULL : prompt);
-        return 1;
+        PiInstance *pi = pi_create();
+        if (!pi) {
+            fprintf(stderr, "Error: Failed to create Pi instance\n");
+            return 1;
+        }
+        int rc = interactive_mode_start(pi, session_id);
+        pi_free(pi);
+        return rc;
     }
 
     if (!prompt || !prompt[0]) {

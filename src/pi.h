@@ -39,7 +39,7 @@
 #define PI_VERSION_MINOR 1
 #define PI_VERSION_PATCH 0
 
-typedef struct {
+typedef struct PiInstance {
     PiExtensionAPI *api;
     AgentState *agent;
     Session *session;

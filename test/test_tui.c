@@ -8,6 +8,9 @@
 #include "tui/widgets/box.h"
 #include "tui/widgets/loader.h"
 #include "tui/widgets/select_list.h"
+#include "tui/widgets/markdown.h"
+#include "tui/widgets/editor.h"
+#include "tui/widgets/image.h"
 #include "util/str.h"
 #include <stdlib.h>
 #include <string.h>
@@ -637,6 +640,347 @@ TEST(adv_key_paste_without_end) {
     ASSERT_TRUE(strlen(k.id) > 0);
 }
 
+/* ========== Widget: Markdown ========== */
+
+TEST(widget_markdown_heading_bold) {
+    Component *c = widget_markdown_create("# Hello");
+    ASSERT_NOT_NULL(c);
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    /* Should contain bold ANSI */
+    ASSERT_TRUE(strstr(out[0], "\x1b[1") != NULL);
+    char *stripped = ansi_strip(out[0]);
+    ASSERT_TRUE(strstr(stripped, "Hello") != NULL);
+    free(stripped);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_code_block_indent) {
+    Component *c = widget_markdown_create("```\nfoo\nbar\n```");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 2);
+    /* Code lines should start with 2-space indent */
+    char *s0 = ansi_strip(out[0]);
+    ASSERT_TRUE(s0[0] == ' ' && s0[1] == ' ');
+    free(s0);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_bold_italic) {
+    Component *c = widget_markdown_create("**bold** and *italic*");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    /* Should contain bold and italic ANSI codes */
+    ASSERT_TRUE(strstr(out[0], "\x1b[1m") != NULL);
+    ASSERT_TRUE(strstr(out[0], "\x1b[3m") != NULL);
+    char *stripped = ansi_strip(out[0]);
+    ASSERT_TRUE(strstr(stripped, "bold") != NULL);
+    ASSERT_TRUE(strstr(stripped, "italic") != NULL);
+    free(stripped);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_bullet_list) {
+    Component *c = widget_markdown_create("- item one\n- item two");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 2);
+    /* Should contain bullet character */
+    char *s0 = ansi_strip(out[0]);
+    ASSERT_TRUE(strstr(s0, "item one") != NULL);
+    free(s0);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_quote_block) {
+    Component *c = widget_markdown_create("> quoted text");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    /* Should contain dim ANSI and bar character */
+    ASSERT_TRUE(strstr(out[0], "\x1b[2m") != NULL);
+    char *stripped = ansi_strip(out[0]);
+    ASSERT_TRUE(strstr(stripped, "quoted text") != NULL);
+    free(stripped);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_horizontal_rule) {
+    Component *c = widget_markdown_create("---");
+    int lines = 0;
+    char **out = c->render(c, 40, &lines);
+    ASSERT_TRUE(lines >= 1);
+    /* Should contain horizontal line chars (─ = E2 94 80) */
+    ASSERT_TRUE(strstr(out[0], "\xE2\x94\x80") != NULL);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_streaming_append) {
+    Component *c = widget_markdown_create("# Title");
+    widget_markdown_append(c, "\nMore text");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 2);
+    char *s1 = ansi_strip(out[1]);
+    ASSERT_TRUE(strstr(s1, "More text") != NULL);
+    free(s1);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_word_wrap) {
+    Component *c = widget_markdown_create("This is a long line that should wrap when the width is narrow enough to force wrapping");
+    int lines = 0;
+    char **out = c->render(c, 20, &lines);
+    ASSERT_TRUE(lines > 1);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_markdown_empty_input) {
+    Component *c = widget_markdown_create("");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_EQ(lines, 0);
+    free(out);
+    component_free(c);
+
+    Component *c2 = widget_markdown_create(NULL);
+    lines = 0;
+    out = c2->render(c2, 80, &lines);
+    ASSERT_EQ(lines, 0);
+    free(out);
+    component_free(c2);
+}
+
+TEST(widget_markdown_nested_formatting) {
+    Component *c = widget_markdown_create("**bold *italic***");
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    /* Should contain both bold and italic ANSI */
+    ASSERT_TRUE(strstr(out[0], "\x1b[1m") != NULL);
+    ASSERT_TRUE(strstr(out[0], "\x1b[3m") != NULL);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+/* ========== Widget: Editor ========== */
+
+TEST(widget_editor_create_empty) {
+    Component *c = widget_editor_create(10);
+    ASSERT_NOT_NULL(c);
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "");
+    ASSERT_EQ(widget_editor_get_line_count(c), 1);
+    component_free(c);
+}
+
+TEST(widget_editor_set_get_text) {
+    Component *c = widget_editor_create(10);
+    widget_editor_set_text(c, "hello\nworld");
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "hello\nworld");
+    ASSERT_EQ(widget_editor_get_line_count(c), 2);
+    component_free(c);
+}
+
+TEST(widget_editor_type_chars) {
+    Component *c = widget_editor_create(10);
+    c->handle_input(c, "h", 1);
+    c->handle_input(c, "i", 1);
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "hi");
+    component_free(c);
+}
+
+TEST(widget_editor_enter_newline) {
+    Component *c = widget_editor_create(10);
+    c->handle_input(c, "a", 1);
+    c->handle_input(c, "b", 1);
+    c->handle_input(c, "\r", 1); /* enter */
+    c->handle_input(c, "c", 1);
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "ab\nc");
+    ASSERT_EQ(widget_editor_get_line_count(c), 2);
+    component_free(c);
+}
+
+TEST(widget_editor_backspace_delete) {
+    Component *c = widget_editor_create(10);
+    c->handle_input(c, "a", 1);
+    c->handle_input(c, "b", 1);
+    c->handle_input(c, "\x7f", 1); /* backspace */
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "a");
+    component_free(c);
+}
+
+TEST(widget_editor_backspace_join_lines) {
+    Component *c = widget_editor_create(10);
+    widget_editor_set_text(c, "ab\ncd");
+    /* Move to start of line 2 (set_text puts cursor at 0,0) */
+    c->handle_input(c, "\x1b[B", 3); /* down */
+    /* Now at line 1, col 0 */
+    ASSERT_EQ(widget_editor_get_cursor_line(c), 1);
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 0);
+    c->handle_input(c, "\x7f", 1); /* backspace joins lines */
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "abcd");
+    ASSERT_EQ(widget_editor_get_line_count(c), 1);
+    component_free(c);
+}
+
+TEST(widget_editor_arrow_navigation) {
+    Component *c = widget_editor_create(10);
+    c->handle_input(c, "a", 1);
+    c->handle_input(c, "b", 1);
+    c->handle_input(c, "c", 1);
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 3);
+    c->handle_input(c, "\x1b[D", 3); /* left */
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 2);
+    c->handle_input(c, "\x1b[D", 3); /* left */
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 1);
+    c->handle_input(c, "\x1b[C", 3); /* right */
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 2);
+    component_free(c);
+}
+
+TEST(widget_editor_cursor_position) {
+    Component *c = widget_editor_create(10);
+    widget_editor_set_text(c, "hello\nworld");
+    ASSERT_EQ(widget_editor_get_cursor_line(c), 0);
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 0);
+    c->handle_input(c, "\x1b[B", 3); /* down */
+    ASSERT_EQ(widget_editor_get_cursor_line(c), 1);
+    component_free(c);
+}
+
+TEST(widget_editor_scroll_overflow) {
+    Component *c = widget_editor_create(3); /* only 3 visible lines */
+    widget_editor_set_text(c, "line1\nline2\nline3\nline4\nline5");
+    /* Move to line 5 */
+    c->handle_input(c, "\x1b[B", 3); /* down */
+    c->handle_input(c, "\x1b[B", 3);
+    c->handle_input(c, "\x1b[B", 3);
+    c->handle_input(c, "\x1b[B", 3);
+    ASSERT_EQ(widget_editor_get_cursor_line(c), 4);
+    /* Render should work without crash */
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines <= 3);
+    ASSERT_TRUE(lines > 0);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_editor_line_count) {
+    Component *c = widget_editor_create(10);
+    widget_editor_set_text(c, "a\nb\nc\nd");
+    ASSERT_EQ(widget_editor_get_line_count(c), 4);
+    component_free(c);
+}
+
+TEST(widget_editor_ctrl_k_kill) {
+    Component *c = widget_editor_create(10);
+    widget_editor_set_text(c, "hello world");
+    /* Move cursor to col 5 */
+    c->handle_input(c, "\x1b[C", 3); /* right x5 */
+    c->handle_input(c, "\x1b[C", 3);
+    c->handle_input(c, "\x1b[C", 3);
+    c->handle_input(c, "\x1b[C", 3);
+    c->handle_input(c, "\x1b[C", 3);
+    ASSERT_EQ(widget_editor_get_cursor_col(c), 5);
+    c->handle_input(c, "\x0b", 1); /* ctrl+k */
+    const char *text = widget_editor_get_text(c);
+    ASSERT_STR_EQ(text, "hello");
+    component_free(c);
+}
+
+/* ========== Widget: Image ========== */
+
+TEST(widget_image_create_with_data) {
+    Component *c = widget_image_create("dGVzdA==", "image/png", 40, 20);
+    ASSERT_NOT_NULL(c);
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_image_protocol_detection) {
+    /* In test environment, likely no kitty/iterm, so should be NONE */
+    /* We can't guarantee env, just check it doesn't crash */
+    ImageProtocol p = image_detect_protocol();
+    ASSERT_TRUE(p >= IMG_PROTOCOL_KITTY && p <= IMG_PROTOCOL_NONE);
+}
+
+TEST(widget_image_placeholder_no_protocol) {
+    /* Force NONE by not having special terminal env */
+    Component *c = widget_image_create("dGVzdA==", "image/png", 40, 20);
+    ASSERT_NOT_NULL(c);
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    /* If protocol is NONE, should show placeholder text */
+    ImageProtocol p = image_detect_protocol();
+    if (p == IMG_PROTOCOL_NONE) {
+        ASSERT_TRUE(strstr(out[0], "[Image:") != NULL);
+    }
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_image_set_data) {
+    Component *c = widget_image_create("old", "image/png", 40, 20);
+    widget_image_set_data(c, "new_data", "image/jpeg");
+    /* Just verify it doesn't crash */
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+    component_free(c);
+}
+
+TEST(widget_image_null_safety) {
+    Component *c = widget_image_create(NULL, NULL, 0, 0);
+    ASSERT_NOT_NULL(c);
+    int lines = 0;
+    char **out = c->render(c, 80, &lines);
+    ASSERT_TRUE(lines >= 1);
+    ASSERT_TRUE(strstr(out[0], "[Image:") != NULL);
+    for (int i = 0; i < lines; i++) free(out[i]);
+    free(out);
+
+    /* set_data with NULL comp */
+    widget_image_set_data(NULL, "data", "type");
+
+    component_free(c);
+}
+
 int main(void) {
     TEST_SUITE("Keys");
     RUN_TEST(key_parse_letter);
@@ -727,6 +1071,38 @@ int main(void) {
     RUN_TEST(widget_text_10k_lines);
     RUN_TEST(widget_input_10k_chars);
     RUN_TEST(widget_select_list_1000_items);
+
+    TEST_SUITE("Widget: Markdown");
+    RUN_TEST(widget_markdown_heading_bold);
+    RUN_TEST(widget_markdown_code_block_indent);
+    RUN_TEST(widget_markdown_bold_italic);
+    RUN_TEST(widget_markdown_bullet_list);
+    RUN_TEST(widget_markdown_quote_block);
+    RUN_TEST(widget_markdown_horizontal_rule);
+    RUN_TEST(widget_markdown_streaming_append);
+    RUN_TEST(widget_markdown_word_wrap);
+    RUN_TEST(widget_markdown_empty_input);
+    RUN_TEST(widget_markdown_nested_formatting);
+
+    TEST_SUITE("Widget: Editor");
+    RUN_TEST(widget_editor_create_empty);
+    RUN_TEST(widget_editor_set_get_text);
+    RUN_TEST(widget_editor_type_chars);
+    RUN_TEST(widget_editor_enter_newline);
+    RUN_TEST(widget_editor_backspace_delete);
+    RUN_TEST(widget_editor_backspace_join_lines);
+    RUN_TEST(widget_editor_arrow_navigation);
+    RUN_TEST(widget_editor_cursor_position);
+    RUN_TEST(widget_editor_scroll_overflow);
+    RUN_TEST(widget_editor_line_count);
+    RUN_TEST(widget_editor_ctrl_k_kill);
+
+    TEST_SUITE("Widget: Image");
+    RUN_TEST(widget_image_create_with_data);
+    RUN_TEST(widget_image_protocol_detection);
+    RUN_TEST(widget_image_placeholder_no_protocol);
+    RUN_TEST(widget_image_set_data);
+    RUN_TEST(widget_image_null_safety);
 
     TEST_SUITE("ADVERSARIAL: Key Parser Fuzzing");
     RUN_TEST(adv_key_zero_length);
