@@ -20,7 +20,8 @@ AI_SRC = src/ai/types.c src/ai/registry.c src/ai/validation.c \
          src/ai/json_parse.c src/ai/transform.c src/ai/models.c \
          src/ai/providers/anthropic.c src/ai/providers/openai.c \
          src/ai/providers/google.c src/ai/providers/bedrock.c \
-         src/ai/providers/mistral.c src/ai/providers/sigv4.c
+         src/ai/providers/mistral.c src/ai/providers/sigv4.c \
+         src/ai/providers/aws_eventstream.c
 AI_OBJ = $(AI_SRC:.c=.o)
 
 AGENT_SRC = src/agent/agent.c

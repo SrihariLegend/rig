@@ -62,6 +62,20 @@ typedef struct {
 
 int http_stream_sse(const SSERequest *req);
 
+// Raw byte streaming POST (no SSE parsing)
+typedef struct {
+    const char *url;
+    const char **headers;
+    const char *body;
+    size_t body_len;
+    int timeout_ms;
+    void (*on_data)(const unsigned char *data, size_t len, void *ctx);
+    void *ctx;
+    volatile bool *abort_flag;
+} RawStreamRequest;
+
+int http_stream_raw(const RawStreamRequest *req);
+
 // Global init/cleanup (call once)
 void http_global_init(void);
 void http_global_cleanup(void);

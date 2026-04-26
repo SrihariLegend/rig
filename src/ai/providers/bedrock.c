@@ -1,5 +1,6 @@
 #include "bedrock.h"
 #include "sigv4.h"
+#include "aws_eventstream.h"
 #include "ai/types.h"
 #include "util/str.h"
 #include "util/http.h"
@@ -59,7 +60,6 @@ static cJSON *build_body(const Model *model, const Message *messages, int msg_co
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "anthropic_version", "bedrock-2023-05-31");
     cJSON_AddNumberToObject(body, "max_tokens", model->max_tokens > 0 ? model->max_tokens : 4096);
-    cJSON_AddBoolToObject(body, "stream", 1);
 
     if (system_prompt) {
         cJSON_AddStringToObject(body, "system", system_prompt);
@@ -96,6 +96,21 @@ static const char *get_bedrock_api_key(void) {
     return NULL;
 }
 
+typedef struct {
+    BedrockStreamCtx *stream_ctx;
+    EventStreamParser *parser;
+} BedrockRawCtx;
+
+static void bedrock_event_handler(const char *json_event, void *ctx) {
+    BedrockStreamCtx *stream_ctx = (BedrockStreamCtx *)ctx;
+    bedrock_sse_handler(NULL, json_event, stream_ctx);
+}
+
+static void bedrock_raw_data(const unsigned char *data, size_t len, void *ctx) {
+    BedrockRawCtx *raw = (BedrockRawCtx *)ctx;
+    eventstream_parser_feed(raw->parser, data, len);
+}
+
 static int bedrock_stream_apikey(const Model *model, const Message *messages, int msg_count,
                                  const char *system_prompt, StreamCallback cb, void *userdata) {
     const char *api_key = get_bedrock_api_key();
@@ -120,20 +135,24 @@ static int bedrock_stream_apikey(const Model *model, const Message *messages, in
         NULL,
     };
 
-    BedrockStreamCtx ctx = { .cb = cb, .userdata = userdata };
+    BedrockStreamCtx stream_ctx = { .cb = cb, .userdata = userdata };
+    EventStreamParser *parser = eventstream_parser_create(bedrock_event_handler, &stream_ctx);
 
-    SSERequest sse_req = {
+    BedrockRawCtx raw_ctx = { .stream_ctx = &stream_ctx, .parser = parser };
+
+    RawStreamRequest raw_req = {
         .url = url,
         .headers = headers,
         .body = body_str,
         .body_len = strlen(body_str),
-        .on_event = bedrock_sse_handler,
-        .ctx = &ctx,
+        .timeout_ms = 120000,
+        .on_data = bedrock_raw_data,
+        .ctx = &raw_ctx,
     };
-    int result = http_stream_sse(&sse_req);
+    int result = http_stream_raw(&raw_req);
 
     free(body_str);
-    if (ctx.partial) message_free(ctx.partial);
+    eventstream_parser_free(parser);
 
     return result;
 }
@@ -203,7 +222,6 @@ static int bedrock_stream_sigv4(const Model *model, const Message *messages, int
     free(body_str);
     free(merged_headers);
     sigv4_headers_free(&signed_hdrs);
-    if (ctx.partial) message_free(ctx.partial);
 
     return result;
 }

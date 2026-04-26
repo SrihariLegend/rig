@@ -474,3 +474,60 @@ int http_stream_sse(const SSERequest *req) {
 
     return result;
 }
+
+typedef struct {
+    void (*on_data)(const unsigned char *data, size_t len, void *ctx);
+    void *ctx;
+    volatile bool *abort_flag;
+} RawStreamContext;
+
+static size_t raw_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    RawStreamContext *ctx = (RawStreamContext *)userdata;
+    size_t total = size * nmemb;
+    if (ctx->abort_flag && *ctx->abort_flag) return 0;
+    ctx->on_data((const unsigned char *)ptr, total, ctx->ctx);
+    return total;
+}
+
+int http_stream_raw(const RawStreamRequest *req) {
+    if (!req || !req->url || !req->on_data) return -1;
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    RawStreamContext stream_ctx = {
+        .on_data = req->on_data,
+        .ctx = req->ctx,
+        .abort_flag = req->abort_flag,
+    };
+
+    struct curl_slist *curl_headers = NULL;
+    curl_easy_setopt(curl, CURLOPT_URL, req->url);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+    if (req->headers) {
+        for (int i = 0; req->headers[i]; i++) {
+            curl_headers = curl_slist_append(curl_headers, req->headers[i]);
+        }
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, curl_headers);
+    }
+
+    if (req->body && req->body_len > 0) {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req->body);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)req->body_len);
+    }
+
+    if (req->timeout_ms > 0) {
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)req->timeout_ms);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, raw_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &stream_ctx);
+
+    CURLcode res = curl_easy_perform(curl);
+    int result = (res == CURLE_OK || res == CURLE_ABORTED_BY_CALLBACK) ? 0 : -1;
+
+    if (curl_headers) curl_slist_free_all(curl_headers);
+    curl_easy_cleanup(curl);
+    return result;
+}
