@@ -11,6 +11,7 @@ static const struct { const char *provider; const char *env_vars[4]; } key_map[]
     { "xai",       { "XAI_API_KEY", NULL } },
     { "groq",      { "GROQ_API_KEY", NULL } },
     { "openrouter", { "OPENROUTER_API_KEY", NULL } },
+    { "bedrock",   { "AWS_ACCESS_KEY_ID", NULL } },
 };
 
 char *auth_get_api_key(const char *provider) {

@@ -78,6 +78,48 @@ static Model builtin_models[] = {
         .max_tokens = 16384,
         .compat_type = COMPAT_OPENAI_COMPLETIONS,
     },
+    {
+        .id = "anthropic.claude-opus-4-7-v1:0",
+        .name = "Claude Opus 4.7 (Bedrock)",
+        .api = "bedrock",
+        .provider = "bedrock",
+        .base_url = NULL,
+        .reasoning = true,
+        .input_modalities = text_image,
+        .input_modality_count = 2,
+        .cost_per_million = { .input = 15.0, .output = 75.0, .cache_read = 1.5, .cache_write = 18.75 },
+        .context_window = 200000,
+        .max_tokens = 32000,
+        .compat_type = COMPAT_ANTHROPIC,
+    },
+    {
+        .id = "anthropic.claude-sonnet-4-6-v1:0",
+        .name = "Claude Sonnet 4.6 (Bedrock)",
+        .api = "bedrock",
+        .provider = "bedrock",
+        .base_url = NULL,
+        .reasoning = true,
+        .input_modalities = text_image,
+        .input_modality_count = 2,
+        .cost_per_million = { .input = 3.0, .output = 15.0, .cache_read = 0.3, .cache_write = 3.75 },
+        .context_window = 200000,
+        .max_tokens = 16000,
+        .compat_type = COMPAT_ANTHROPIC,
+    },
+    {
+        .id = "anthropic.claude-haiku-4-5-v1:0",
+        .name = "Claude Haiku 4.5 (Bedrock)",
+        .api = "bedrock",
+        .provider = "bedrock",
+        .base_url = NULL,
+        .reasoning = false,
+        .input_modalities = text_image,
+        .input_modality_count = 2,
+        .cost_per_million = { .input = 0.8, .output = 4.0, .cache_read = 0.08, .cache_write = 1.0 },
+        .context_window = 200000,
+        .max_tokens = 8192,
+        .compat_type = COMPAT_ANTHROPIC,
+    },
 };
 
 static const int builtin_model_count = sizeof(builtin_models) / sizeof(builtin_models[0]);
@@ -86,7 +128,13 @@ void models_init(void) {
 }
 
 const Model *models_get(const char *provider, const char *model_id) {
-    if (!model_id) return NULL;
+    if (!model_id && !provider) return NULL;
+    if (!model_id) {
+        for (int i = 0; i < builtin_model_count; i++) {
+            if (strcmp(builtin_models[i].provider, provider) == 0) return &builtin_models[i];
+        }
+        return NULL;
+    }
     for (int i = 0; i < builtin_model_count; i++) {
         if (provider && strcmp(builtin_models[i].provider, provider) != 0) continue;
         if (strcmp(builtin_models[i].id, model_id) == 0) return &builtin_models[i];
