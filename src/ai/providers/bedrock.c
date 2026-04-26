@@ -88,14 +88,17 @@ static cJSON *build_body(const Model *model, const Message *messages, int msg_co
     return body;
 }
 
-static bool has_bedrock_api_key(void) {
-    const char *key = getenv("BEDROCK_API_KEY");
-    return key && key[0];
+static const char *get_bedrock_api_key(void) {
+    const char *key = getenv("AWS_BEARER_TOKEN_BEDROCK");
+    if (key && key[0]) return key;
+    key = getenv("BEDROCK_API_KEY");
+    if (key && key[0]) return key;
+    return NULL;
 }
 
 static int bedrock_stream_apikey(const Model *model, const Message *messages, int msg_count,
                                  const char *system_prompt, StreamCallback cb, void *userdata) {
-    const char *api_key = getenv("BEDROCK_API_KEY");
+    const char *api_key = get_bedrock_api_key();
     const char *region = getenv("AWS_REGION");
     if (!region) region = "us-east-1";
 
@@ -212,7 +215,7 @@ static int bedrock_stream(const Model *model, const Message *messages, int msg_c
     (void)options; (void)tools; (void)tool_count;
     if (!model || !cb) return -1;
 
-    if (has_bedrock_api_key()) {
+    if (get_bedrock_api_key()) {
         return bedrock_stream_apikey(model, messages, msg_count, system_prompt, cb, userdata);
     }
     return bedrock_stream_sigv4(model, messages, msg_count, system_prompt, cb, userdata);

@@ -79,8 +79,8 @@ static Model builtin_models[] = {
         .compat_type = COMPAT_OPENAI_COMPLETIONS,
     },
     {
-        .id = "anthropic.claude-opus-4-7-v1:0",
-        .name = "Claude Opus 4.7 (Bedrock)",
+        .id = "global.anthropic.claude-opus-4-6-v1",
+        .name = "Claude Opus 4.6 (Bedrock)",
         .api = "bedrock",
         .provider = "bedrock",
         .base_url = NULL,
@@ -93,8 +93,8 @@ static Model builtin_models[] = {
         .compat_type = COMPAT_ANTHROPIC,
     },
     {
-        .id = "anthropic.claude-sonnet-4-6-v1:0",
-        .name = "Claude Sonnet 4.6 (Bedrock)",
+        .id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        .name = "Claude Sonnet 4.5 (Bedrock)",
         .api = "bedrock",
         .provider = "bedrock",
         .base_url = NULL,
@@ -107,7 +107,7 @@ static Model builtin_models[] = {
         .compat_type = COMPAT_ANTHROPIC,
     },
     {
-        .id = "anthropic.claude-haiku-4-5-v1:0",
+        .id = "global.anthropic.claude-haiku-4-5-20251001-v1:0",
         .name = "Claude Haiku 4.5 (Bedrock)",
         .api = "bedrock",
         .provider = "bedrock",
