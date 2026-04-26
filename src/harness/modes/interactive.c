@@ -1,7 +1,12 @@
 #include "interactive.h"
 #include "pi.h"
 #include "harness/tools/tools.h"
+#include "harness/model_registry.h"
 #include "ai/providers/anthropic.h"
+#include "ai/providers/openai.h"
+#include "ai/providers/google.h"
+#include "ai/providers/bedrock.h"
+#include "ai/providers/mistral.h"
 #include "util/log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -482,18 +487,47 @@ int interactive_mode_start(PiInstance *pi, const char *session_id) {
     ai_registry_init();
     models_init();
     anthropic_register();
+    openai_completions_register();
+    openai_responses_register();
+    google_provider_register();
+    bedrock_provider_register();
+    mistral_provider_register();
 
-    /* Resolve model */
-    const Model *model = models_get(NULL, "claude-sonnet-4-6");
-    if (!model) {
-        LOG_ERROR("Failed to find default model");
-        return -1;
+    /* Try to find a model with an available API key */
+    static const char *try_models[] = {
+        "claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-7",
+        "gpt-4o", "gemini-2.0-flash", NULL
+    };
+    static const char *try_providers[] = {
+        "anthropic", "openai", "google", "mistral", "bedrock", NULL
+    };
+
+    const Model *model = NULL;
+    char *api_key = NULL;
+
+    for (int i = 0; try_models[i] && !api_key; i++) {
+        const Model *m = models_get(NULL, try_models[i]);
+        if (m) {
+            char *key = auth_get_api_key(m->provider);
+            if (key) { model = m; api_key = key; break; }
+        }
     }
 
-    /* Get API key */
-    char *api_key = auth_get_api_key(model->provider);
     if (!api_key) {
-        LOG_ERROR("No API key found for provider '%s'", model->provider);
+        for (int i = 0; try_providers[i] && !api_key; i++) {
+            char *key = auth_get_api_key(try_providers[i]);
+            if (key) {
+                model = models_get(try_providers[i], NULL);
+                api_key = key;
+                break;
+            }
+        }
+    }
+
+    if (!api_key || !model) {
+        fprintf(stderr, "Error: No API key found. Set one of:\n");
+        fprintf(stderr, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,\n");
+        fprintf(stderr, "  MISTRAL_API_KEY, AWS_ACCESS_KEY_ID\n");
         return -1;
     }
 

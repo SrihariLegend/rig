@@ -7,6 +7,10 @@
 #include "ai/models.h"
 #include "ai/registry.h"
 #include "ai/providers/anthropic.h"
+#include "ai/providers/openai.h"
+#include "ai/providers/google.h"
+#include "ai/providers/bedrock.h"
+#include "ai/providers/mistral.h"
 #include "harness/auth.h"
 #include "harness/config.h"
 #include "harness/tools/tools.h"
@@ -93,7 +97,7 @@ int main(int argc, char **argv) {
     char *prompt = NULL;
     if (optind < argc) {
         prompt = argv[optind];
-    } else if (!isatty(STDIN_FILENO)) {
+    } else if (print_mode && !isatty(STDIN_FILENO)) {
         size_t cap = 4096, len = 0;
         prompt = malloc(cap);
         while (1) {
@@ -103,7 +107,6 @@ int main(int argc, char **argv) {
             if (len >= cap - 1) { cap *= 2; prompt = realloc(prompt, cap); }
         }
         prompt[len] = '\0';
-        print_mode = true;
     }
 
     if (!print_mode) {
@@ -126,19 +129,42 @@ int main(int argc, char **argv) {
     ai_registry_init();
     models_init();
     anthropic_register();
+    openai_completions_register();
+    openai_responses_register();
+    google_provider_register();
+    bedrock_provider_register();
+    mistral_provider_register();
 
-    if (!model_pattern) model_pattern = "claude-sonnet-4-6";
-    const Model *model = models_get(provider, model_pattern);
-    if (!model) {
-        fprintf(stderr, "Error: Model '%s' not found\n", model_pattern);
-        return 1;
-    }
+    const Model *model = NULL;
+    char *api_key = NULL;
 
-    char *api_key = auth_get_api_key(model->provider);
-    if (!api_key) {
-        fprintf(stderr, "Error: No API key found for provider '%s'\n", model->provider);
-        fprintf(stderr, "Set the appropriate environment variable (e.g., ANTHROPIC_API_KEY)\n");
-        return 1;
+    if (model_pattern) {
+        model = models_get(provider, model_pattern);
+        if (!model) {
+            fprintf(stderr, "Error: Model '%s' not found\n", model_pattern);
+            return 1;
+        }
+        api_key = auth_get_api_key(model->provider);
+        if (!api_key) {
+            fprintf(stderr, "Error: No API key for provider '%s'. Set %s_API_KEY\n",
+                    model->provider, model->provider);
+            return 1;
+        }
+    } else {
+        static const char *try_models[] = {
+            "claude-sonnet-4-6", "gpt-4o", "gemini-2.0-flash", NULL
+        };
+        for (int i = 0; try_models[i]; i++) {
+            const Model *m = models_get(NULL, try_models[i]);
+            if (m) {
+                char *key = auth_get_api_key(m->provider);
+                if (key) { model = m; api_key = key; break; }
+            }
+        }
+        if (!model) {
+            fprintf(stderr, "Error: No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.\n");
+            return 1;
+        }
     }
 
     char cwd[4096];

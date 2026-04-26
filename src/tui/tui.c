@@ -382,14 +382,14 @@ int tui_run(TUI *tui) {
 
                 /* Let external handler process first */
                 if (tui->key_handler) {
-                    const ParsedKey *ckey = &key;
-                    tui->key_handler(tui, ckey, tui->key_handler_ctx);
-                }
-
-                /* Exit on ctrl+c or escape */
-                if (key_matches(&key, "ctrl+c") || key_matches(&key, "escape")) {
-                    tui->running = false;
-                    break;
+                    tui->key_handler(tui, &key, tui->key_handler_ctx);
+                    if (!tui->running) break;
+                } else {
+                    /* Default: exit on ctrl+c or escape (only when no handler) */
+                    if (key_matches(&key, "ctrl+c") || key_matches(&key, "escape")) {
+                        tui->running = false;
+                        break;
+                    }
                 }
 
                 /* Dispatch to focused component */
