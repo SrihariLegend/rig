@@ -115,7 +115,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Error: Failed to create Pi instance\n");
             return 1;
         }
-        int rc = interactive_mode_start(pi, session_id);
+        int rc = interactive_mode_start(pi, session_id, model_pattern, provider);
         pi_free(pi);
         return rc;
     }
@@ -146,23 +146,20 @@ int main(int argc, char **argv) {
         }
         api_key = auth_get_api_key(model->provider);
         if (!api_key) {
-            fprintf(stderr, "Error: No API key for provider '%s'. Set %s_API_KEY\n",
-                    model->provider, model->provider);
+            fprintf(stderr, "Error: No API key for provider '%s'\n", model->provider);
             return 1;
         }
     } else {
-        static const char *try_models[] = {
-            "claude-sonnet-4-6", "gpt-4o", "gemini-2.0-flash", NULL
-        };
-        for (int i = 0; try_models[i]; i++) {
-            const Model *m = models_get(NULL, try_models[i]);
-            if (m) {
-                char *key = auth_get_api_key(m->provider);
-                if (key) { model = m; api_key = key; break; }
-            }
+        int all_count = 0;
+        const Model **all_models = models_get_all(provider, &all_count);
+        for (int i = 0; i < all_count && !api_key; i++) {
+            char *key = auth_get_api_key(all_models[i]->provider);
+            if (key) { model = all_models[i]; api_key = key; }
         }
         if (!model) {
-            fprintf(stderr, "Error: No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.\n");
+            fprintf(stderr, "Error: No API key found. Set one of:\n");
+            fprintf(stderr, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,\n");
+            fprintf(stderr, "  MISTRAL_API_KEY, AWS_ACCESS_KEY_ID\n");
             return 1;
         }
     }

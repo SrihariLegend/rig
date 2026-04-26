@@ -285,6 +285,13 @@ static void handle_submit(InteractiveState *state) {
     const char *text = widget_input_get_text(state->input);
     if (!text || !text[0]) return;
 
+    if (!state->model || !state->api_key) {
+        add_history_widget(state, "\x1b[31mError:\x1b[0m",
+            "No API key configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.");
+        widget_input_clear(state->input);
+        return;
+    }
+
     char *prompt_text = strdup(text);
     widget_input_clear(state->input);
 
@@ -479,7 +486,8 @@ void interactive_state_free(InteractiveState *state) {
     free(state);
 }
 
-int interactive_mode_start(PiInstance *pi, const char *session_id) {
+int interactive_mode_start(PiInstance *pi, const char *session_id,
+                           const char *model_pattern, const char *provider) {
     if (!pi) return -1;
 
     /* Initialize subsystems */
@@ -493,45 +501,23 @@ int interactive_mode_start(PiInstance *pi, const char *session_id) {
     bedrock_provider_register();
     mistral_provider_register();
 
-    /* Try to find a model with an available API key */
-    static const char *try_models[] = {
-        "claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-7",
-        "gpt-4o", "gemini-2.0-flash", NULL
-    };
-    static const char *try_providers[] = {
-        "anthropic", "openai", "google", "mistral", "bedrock", NULL
-    };
-
+    /* Resolve model: explicit pattern, or first available with API key (alphabetical) */
     const Model *model = NULL;
     char *api_key = NULL;
 
-    for (int i = 0; try_models[i] && !api_key; i++) {
-        const Model *m = models_get(NULL, try_models[i]);
-        if (m) {
-            char *key = auth_get_api_key(m->provider);
-            if (key) { model = m; api_key = key; break; }
+    if (model_pattern) {
+        model = models_get(provider, model_pattern);
+        if (model) api_key = auth_get_api_key(model->provider);
+    } else {
+        int all_count = 0;
+        const Model **all_models = models_get_all(provider, &all_count);
+        for (int i = 0; i < all_count && !api_key; i++) {
+            char *key = auth_get_api_key(all_models[i]->provider);
+            if (key) { model = all_models[i]; api_key = key; }
         }
     }
 
-    if (!api_key) {
-        for (int i = 0; try_providers[i] && !api_key; i++) {
-            char *key = auth_get_api_key(try_providers[i]);
-            if (key) {
-                model = models_get(try_providers[i], NULL);
-                api_key = key;
-                break;
-            }
-        }
-    }
-
-    if (!api_key || !model) {
-        fprintf(stderr, "Error: No API key found. Set one of:\n");
-        fprintf(stderr, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,\n");
-        fprintf(stderr, "  MISTRAL_API_KEY, AWS_ACCESS_KEY_ID\n");
-        return -1;
-    }
-
-    /* Create interactive state */
+    /* Create interactive state (model/api_key may be NULL) */
     InteractiveState *state = interactive_state_create(pi, model, api_key);
     free(api_key);
     if (!state) return -1;
@@ -568,6 +554,21 @@ int interactive_mode_start(PiInstance *pi, const char *session_id) {
 
     /* Set key handler - this overrides tui_run's default ctrl+c/escape handling */
     tui_set_key_handler(state->tui, interactive_key_handler, state);
+
+    /* If no provider configured, show welcome message with setup instructions */
+    if (!model || !state->api_key) {
+        add_history_widget(state, NULL,
+            "\x1b[1mWelcome to Pi\x1b[0m");
+        add_history_widget(state, NULL,
+            "\x1b[33mNo API key / provider configured.\x1b[0m\n"
+            "Set one of these environment variables:\n"
+            "  ANTHROPIC_API_KEY    (Claude models)\n"
+            "  OPENAI_API_KEY       (GPT models)\n"
+            "  GOOGLE_API_KEY       (Gemini models)\n"
+            "  MISTRAL_API_KEY      (Mistral models)\n"
+            "  AWS_ACCESS_KEY_ID    (Bedrock models)\n\n"
+            "Then restart pi. Press Ctrl+C to exit.");
+    }
 
     /* Build initial layout */
     update_status_line(state);

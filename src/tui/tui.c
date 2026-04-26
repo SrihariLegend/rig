@@ -337,6 +337,12 @@ void tui_set_key_handler(TUI *tui, TuiKeyHandler handler, void *ctx) {
 int tui_run(TUI *tui) {
     if (!tui) return -1;
 
+    if (!isatty(STDIN_FILENO)) {
+        fprintf(stderr, "Error: Interactive mode requires a terminal.\n"
+                        "Use -p for print mode: pi -p \"your prompt\"\n");
+        return -1;
+    }
+
     /* Install SIGWINCH handler */
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
