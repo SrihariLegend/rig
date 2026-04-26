@@ -178,6 +178,10 @@ static void prepare_tool_call(AgentState *state, ToolExecJob *job, ContentBlock 
 static void execute_tool_call(ToolExecJob *job, volatile bool *abort) {
     if (job->is_error || !job->tool) return;
 
+    char *args_str = job->validated_args ? cJSON_PrintUnformatted(job->validated_args) : NULL;
+    LOG_INFO("Tool exec: %s args=%s", job->tool->name, args_str ? args_str : "{}");
+    free(args_str);
+
     int rc = job->tool->execute(
         job->tool_call->tool_call.id,
         job->validated_args,
