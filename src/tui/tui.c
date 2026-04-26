@@ -286,6 +286,10 @@ void tui_render(TUI *tui) {
         }
     }
 
+    /* Position cursor at bottom line (input area) */
+    terminal_move_cursor(tui->height, 1);
+    terminal_show_cursor();
+
     terminal_sync_end();
 
     free_lines(tui->previous_lines, tui->previous_line_count);

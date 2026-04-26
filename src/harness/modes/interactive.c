@@ -424,14 +424,14 @@ static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
         return true;
     }
 
-    if (key_matches(key, "shift+up")) {
+    if (key_matches(key, "up") || key_matches(key, "shift+up")) {
         tui->auto_scroll = false;
         if (tui->scroll_offset > 0) tui->scroll_offset--;
         tui_invalidate(tui);
         return true;
     }
 
-    if (key_matches(key, "shift+down")) {
+    if (key_matches(key, "down") || key_matches(key, "shift+down")) {
         int viewport_height = tui->height;
         int max_offset = tui->virtual_line_count - viewport_height;
         if (max_offset < 0) max_offset = 0;
