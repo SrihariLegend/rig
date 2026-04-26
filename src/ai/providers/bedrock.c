@@ -14,6 +14,7 @@ typedef struct {
     StreamCallback cb;
     void *userdata;
     Message *partial;
+    int content_index;
 } BedrockStreamCtx;
 
 static void bedrock_sse_handler(const char *event_type, const char *data, void *userdata) {
@@ -43,23 +44,88 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
             ctx->partial = calloc(1, sizeof(Message));
             ctx->partial->role = ROLE_ASSISTANT;
         }
-        StreamEvent evt = { .type = EVENT_TEXT_START, .partial = ctx->partial };
-        ctx->cb(&evt, ctx->userdata);
+        cJSON *index = cJSON_GetObjectItem(json, "index");
+        if (index && cJSON_IsNumber(index)) ctx->content_index = index->valueint;
+
+        cJSON *cb_obj = cJSON_GetObjectItem(json, "content_block");
+        if (cb_obj) {
+            cJSON *cb_type = cJSON_GetObjectItem(cb_obj, "type");
+            if (cb_type && cJSON_IsString(cb_type) && strcmp(cb_type->valuestring, "tool_use") == 0) {
+                cJSON *id = cJSON_GetObjectItem(cb_obj, "id");
+                cJSON *name = cJSON_GetObjectItem(cb_obj, "name");
+                message_add_content(ctx->partial, content_tool_call(
+                    id && cJSON_IsString(id) ? id->valuestring : "",
+                    name && cJSON_IsString(name) ? name->valuestring : "",
+                    NULL));
+                StreamEvent evt = { .type = EVENT_TOOLCALL_START, .partial = ctx->partial,
+                                    .content_index = ctx->content_index };
+                ctx->cb(&evt, ctx->userdata);
+            } else {
+                message_add_content(ctx->partial, content_text("", NULL));
+                StreamEvent evt = { .type = EVENT_TEXT_START, .partial = ctx->partial,
+                                    .content_index = ctx->content_index };
+                ctx->cb(&evt, ctx->userdata);
+            }
+        }
     } else if (strcmp(type->valuestring, "content_block_delta") == 0) {
+        cJSON *index = cJSON_GetObjectItem(json, "index");
+        if (index && cJSON_IsNumber(index)) ctx->content_index = index->valueint;
+
         cJSON *delta = cJSON_GetObjectItem(json, "delta");
-        if (delta) {
+        if (delta && ctx->partial && ctx->content_index < ctx->partial->content_count) {
             cJSON *dt = cJSON_GetObjectItem(delta, "type");
-            if (dt && cJSON_IsString(dt) && strcmp(dt->valuestring, "text_delta") == 0) {
-                cJSON *text = cJSON_GetObjectItem(delta, "text");
-                if (text && cJSON_IsString(text)) {
-                    StreamEvent evt = { .type = EVENT_TEXT_DELTA, .delta = text->valuestring };
-                    ctx->cb(&evt, ctx->userdata);
+            if (dt && cJSON_IsString(dt)) {
+                if (strcmp(dt->valuestring, "text_delta") == 0) {
+                    cJSON *text = cJSON_GetObjectItem(delta, "text");
+                    if (text && cJSON_IsString(text)) {
+                        ContentBlock *b = &ctx->partial->content[ctx->content_index];
+                        size_t old_len = b->text.text ? strlen(b->text.text) : 0;
+                        size_t add_len = strlen(text->valuestring);
+                        char *new_text = realloc(b->text.text, old_len + add_len + 1);
+                        memcpy(new_text + old_len, text->valuestring, add_len);
+                        new_text[old_len + add_len] = '\0';
+                        b->text.text = new_text;
+
+                        StreamEvent evt = { .type = EVENT_TEXT_DELTA, .delta = text->valuestring,
+                                            .partial = ctx->partial, .content_index = ctx->content_index };
+                        ctx->cb(&evt, ctx->userdata);
+                    }
+                } else if (strcmp(dt->valuestring, "input_json_delta") == 0) {
+                    cJSON *pj = cJSON_GetObjectItem(delta, "partial_json");
+                    if (pj && cJSON_IsString(pj)) {
+                        ContentBlock *b = &ctx->partial->content[ctx->content_index];
+                        size_t old_len = b->tool_call.partial_json ? strlen(b->tool_call.partial_json) : 0;
+                        size_t add_len = strlen(pj->valuestring);
+                        char *new_pj = realloc(b->tool_call.partial_json, old_len + add_len + 1);
+                        memcpy(new_pj + old_len, pj->valuestring, add_len);
+                        new_pj[old_len + add_len] = '\0';
+                        b->tool_call.partial_json = new_pj;
+
+                        cJSON *parsed = cJSON_Parse(b->tool_call.partial_json);
+                        if (parsed) {
+                            if (b->tool_call.arguments) cJSON_Delete(b->tool_call.arguments);
+                            b->tool_call.arguments = parsed;
+                        }
+
+                        StreamEvent evt = { .type = EVENT_TOOLCALL_DELTA, .delta = pj->valuestring,
+                                            .partial = ctx->partial, .content_index = ctx->content_index };
+                        ctx->cb(&evt, ctx->userdata);
+                    }
                 }
             }
         }
     } else if (strcmp(type->valuestring, "content_block_stop") == 0) {
-        StreamEvent evt = { .type = EVENT_TEXT_END, .partial = ctx->partial };
-        ctx->cb(&evt, ctx->userdata);
+        cJSON *index = cJSON_GetObjectItem(json, "index");
+        if (index && cJSON_IsNumber(index)) ctx->content_index = index->valueint;
+
+        if (ctx->partial && ctx->content_index < ctx->partial->content_count) {
+            ContentBlock *b = &ctx->partial->content[ctx->content_index];
+            StreamEventType etype = EVENT_TEXT_END;
+            if (b->type == CONTENT_TOOL_CALL) etype = EVENT_TOOLCALL_END;
+            StreamEvent evt = { .type = etype, .partial = ctx->partial,
+                                .content_index = ctx->content_index };
+            ctx->cb(&evt, ctx->userdata);
+        }
     } else if (strcmp(type->valuestring, "message_delta") == 0) {
         /* usage info etc — ignore for now */
     } else if (strcmp(type->valuestring, "message_stop") == 0) {
@@ -76,7 +142,7 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
 }
 
 static cJSON *build_body(const Model *model, const Message *messages, int msg_count,
-                         const char *system_prompt) {
+                         const char *system_prompt, const Tool *tools, int tool_count) {
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "anthropic_version", "bedrock-2023-05-31");
     cJSON_AddNumberToObject(body, "max_tokens", model->max_tokens > 0 ? model->max_tokens : 4096);
@@ -88,22 +154,78 @@ static cJSON *build_body(const Model *model, const Message *messages, int msg_co
     cJSON *msgs = cJSON_CreateArray();
     for (int i = 0; i < msg_count; i++) {
         cJSON *msg = cJSON_CreateObject();
-        cJSON_AddStringToObject(msg, "role",
-            messages[i].role == ROLE_USER ? "user" : "assistant");
-        cJSON *content = cJSON_CreateArray();
-        for (int j = 0; j < messages[i].content_count; j++) {
-            if (messages[i].content[j].type == CONTENT_TEXT) {
-                cJSON *block = cJSON_CreateObject();
-                cJSON_AddStringToObject(block, "type", "text");
-                cJSON_AddStringToObject(block, "text",
-                    messages[i].content[j].text.text ? messages[i].content[j].text.text : "");
-                cJSON_AddItemToArray(content, block);
+
+        if (messages[i].role == ROLE_TOOL_RESULT) {
+            cJSON_AddStringToObject(msg, "role", "user");
+            cJSON *content = cJSON_CreateArray();
+            for (int j = 0; j < messages[i].content_count; j++) {
+                const ContentBlock *b = &messages[i].content[j];
+                if (b->type == CONTENT_TEXT) {
+                    cJSON *block = cJSON_CreateObject();
+                    cJSON_AddStringToObject(block, "type", "tool_result");
+                    cJSON_AddStringToObject(block, "tool_use_id",
+                        messages[i].tool_call_id ? messages[i].tool_call_id : "");
+                    cJSON *tr_content = cJSON_CreateArray();
+                    cJSON *text_block = cJSON_CreateObject();
+                    cJSON_AddStringToObject(text_block, "type", "text");
+                    cJSON_AddStringToObject(text_block, "text", b->text.text ? b->text.text : "");
+                    cJSON_AddItemToArray(tr_content, text_block);
+                    cJSON_AddItemToObject(block, "content", tr_content);
+                    if (messages[i].is_error) {
+                        cJSON_AddStringToObject(block, "is_error", "true");
+                    }
+                    cJSON_AddItemToArray(content, block);
+                }
             }
+            cJSON_AddItemToObject(msg, "content", content);
+        } else {
+            cJSON_AddStringToObject(msg, "role",
+                messages[i].role == ROLE_USER ? "user" : "assistant");
+            cJSON *content = cJSON_CreateArray();
+            for (int j = 0; j < messages[i].content_count; j++) {
+                const ContentBlock *b = &messages[i].content[j];
+                if (b->type == CONTENT_TEXT) {
+                    cJSON *block = cJSON_CreateObject();
+                    cJSON_AddStringToObject(block, "type", "text");
+                    cJSON_AddStringToObject(block, "text", b->text.text ? b->text.text : "");
+                    cJSON_AddItemToArray(content, block);
+                } else if (b->type == CONTENT_TOOL_CALL) {
+                    cJSON *block = cJSON_CreateObject();
+                    cJSON_AddStringToObject(block, "type", "tool_use");
+                    cJSON_AddStringToObject(block, "id", b->tool_call.id ? b->tool_call.id : "");
+                    cJSON_AddStringToObject(block, "name", b->tool_call.name ? b->tool_call.name : "");
+                    cJSON_AddItemToObject(block, "input",
+                        b->tool_call.arguments ? cJSON_Duplicate(b->tool_call.arguments, true) : cJSON_CreateObject());
+                    cJSON_AddItemToArray(content, block);
+                }
+            }
+            cJSON_AddItemToObject(msg, "content", content);
         }
-        cJSON_AddItemToObject(msg, "content", content);
+
         cJSON_AddItemToArray(msgs, msg);
     }
     cJSON_AddItemToObject(body, "messages", msgs);
+
+    if (tools && tool_count > 0) {
+        cJSON *tools_arr = cJSON_CreateArray();
+        for (int i = 0; i < tool_count; i++) {
+            cJSON *tool = cJSON_CreateObject();
+            cJSON_AddStringToObject(tool, "name", tools[i].name);
+            if (tools[i].description) {
+                cJSON_AddStringToObject(tool, "description", tools[i].description);
+            }
+            if (tools[i].parameters) {
+                cJSON_AddItemToObject(tool, "input_schema",
+                    cJSON_Duplicate(tools[i].parameters, true));
+            } else {
+                cJSON *schema = cJSON_CreateObject();
+                cJSON_AddStringToObject(schema, "type", "object");
+                cJSON_AddItemToObject(tool, "input_schema", schema);
+            }
+            cJSON_AddItemToArray(tools_arr, tool);
+        }
+        cJSON_AddItemToObject(body, "tools", tools_arr);
+    }
 
     return body;
 }
@@ -132,7 +254,8 @@ static void bedrock_raw_data(const unsigned char *data, size_t len, void *ctx) {
 }
 
 static int bedrock_stream_apikey(const Model *model, const Message *messages, int msg_count,
-                                 const char *system_prompt, StreamCallback cb, void *userdata) {
+                                 const char *system_prompt, const Tool *tools, int tool_count,
+                                 StreamCallback cb, void *userdata) {
     const char *api_key = get_bedrock_api_key();
     const char *region = getenv("AWS_REGION");
     if (!region) region = "us-east-1";
@@ -142,7 +265,7 @@ static int bedrock_stream_apikey(const Model *model, const Message *messages, in
         "https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke-with-response-stream",
         region, model->id);
 
-    cJSON *body = build_body(model, messages, msg_count, system_prompt);
+    cJSON *body = build_body(model, messages, msg_count, system_prompt, tools, tool_count);
     char *body_str = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
 
@@ -178,7 +301,8 @@ static int bedrock_stream_apikey(const Model *model, const Message *messages, in
 }
 
 static int bedrock_stream_sigv4(const Model *model, const Message *messages, int msg_count,
-                                const char *system_prompt, StreamCallback cb, void *userdata) {
+                                const char *system_prompt, const Tool *tools, int tool_count,
+                                StreamCallback cb, void *userdata) {
     const char *region = getenv("AWS_REGION");
     if (!region) region = "us-east-1";
 
@@ -194,7 +318,7 @@ static int bedrock_stream_sigv4(const Model *model, const Message *messages, int
         "https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke-with-response-stream",
         region, model->id);
 
-    cJSON *body = build_body(model, messages, msg_count, system_prompt);
+    cJSON *body = build_body(model, messages, msg_count, system_prompt, tools, tool_count);
     char *body_str = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
 
@@ -250,13 +374,13 @@ static int bedrock_stream(const Model *model, const Message *messages, int msg_c
                           const char *system_prompt, const Tool *tools, int tool_count,
                           const StreamOptions *options,
                           StreamCallback cb, void *userdata) {
-    (void)options; (void)tools; (void)tool_count;
+    (void)options;
     if (!model || !cb) return -1;
 
     if (get_bedrock_api_key()) {
-        return bedrock_stream_apikey(model, messages, msg_count, system_prompt, cb, userdata);
+        return bedrock_stream_apikey(model, messages, msg_count, system_prompt, tools, tool_count, cb, userdata);
     }
-    return bedrock_stream_sigv4(model, messages, msg_count, system_prompt, cb, userdata);
+    return bedrock_stream_sigv4(model, messages, msg_count, system_prompt, tools, tool_count, cb, userdata);
 }
 
 static int bedrock_stream_simple(const Model *model, const Message *messages, int msg_count,
