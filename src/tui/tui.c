@@ -387,16 +387,20 @@ int tui_run(TUI *tui) {
                 ParsedKey key = key_parse(buf, (int)n);
 
                 /* Let external handler process first */
+                bool consumed = false;
                 if (tui->key_handler) {
-                    tui->key_handler(tui, &key, tui->key_handler_ctx);
+                    consumed = tui->key_handler(tui, &key, tui->key_handler_ctx);
                     if (!tui->running) break;
-                } else {
+                }
+                if (!consumed && !tui->key_handler) {
                     /* Default: exit on ctrl+c or escape (only when no handler) */
                     if (key_matches(&key, "ctrl+c") || key_matches(&key, "escape")) {
                         tui->running = false;
                         break;
                     }
                 }
+
+                if (consumed) goto render_check;
 
                 /* Dispatch to focused component */
                 for (int i = 0; i < tui->component_count; i++) {
@@ -415,6 +419,8 @@ int tui_run(TUI *tui) {
                         tui->dirty = true;
                     }
                 }
+
+                render_check: (void)0;
             }
         }
 

@@ -34,7 +34,8 @@ typedef struct {
 } Overlay;
 
 #include "keys.h"
-typedef void (*TuiKeyHandler)(TUI *tui, const ParsedKey *key, void *ctx);
+// Return true to consume the key (don't dispatch to widgets)
+typedef bool (*TuiKeyHandler)(TUI *tui, const ParsedKey *key, void *ctx);
 
 struct TUI {
     Component **components;

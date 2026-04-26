@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <pthread.h>
 
 /* ---- Constants ---- */
 
@@ -65,7 +66,8 @@ static void add_history_widget(InteractiveState *state, const char *role_prefix,
 static void update_status_line(InteractiveState *state);
 static void on_agent_event(AgentEvent *event, void *userdata);
 static void handle_submit(InteractiveState *state);
-static void interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx);
+static void *agent_thread_fn(void *arg);
+static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx);
 
 /* ---- TUI Component Management ---- */
 
@@ -146,6 +148,7 @@ static void update_status_line(InteractiveState *state) {
 
 static void on_agent_event(AgentEvent *event, void *userdata) {
     InteractiveState *state = userdata;
+    if (!state || !state->tui) return;
 
     switch (event->type) {
     case AGENT_EVENT_MESSAGE_START:
@@ -314,26 +317,43 @@ static void handle_submit(InteractiveState *state) {
     }
     rebuild_tui_components(state);
 
-    /* Call agent */
+    /* Run agent in background thread so TUI stays responsive */
+    typedef struct { InteractiveState *state; char *prompt; } AgentThreadArg;
+    AgentThreadArg *arg = malloc(sizeof(AgentThreadArg));
+    arg->state = state;
+    arg->prompt = prompt_text;
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, agent_thread_fn, arg);
+    pthread_detach(tid);
+}
+
+static void *agent_thread_fn(void *raw_arg) {
+    typedef struct { InteractiveState *state; char *prompt; } AgentThreadArg;
+    AgentThreadArg *arg = raw_arg;
+    InteractiveState *state = arg->state;
+    char *prompt_text = arg->prompt;
+    free(arg);
+
     Message *prompt_msg = message_create_user(prompt_text);
     agent_prompt(state->agent, &prompt_msg, 1, &state->agent_config,
                  on_agent_event, state);
 
-    /* After agent_prompt returns (blocking), finalize */
     state->phase = ISTATE_IDLE;
     rebuild_tui_components(state);
 
     free(prompt_text);
+    return NULL;
 }
 
-static void interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
+static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
     InteractiveState *state = ctx;
 
     if (key_matches(key, "enter")) {
         if (state->phase == ISTATE_IDLE) {
             handle_submit(state);
         }
-        return;
+        return true;
     }
 
     if (key_matches(key, "ctrl+c")) {
@@ -345,7 +365,7 @@ static void interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
         } else {
             tui_quit(tui);
         }
-        return;
+        return true;
     }
 
     if (key_matches(key, "escape")) {
@@ -355,17 +375,21 @@ static void interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
             add_history_widget(state, NULL, "\x1b[2m(generation cancelled)\x1b[0m");
             rebuild_tui_components(state);
         }
-        return;
+        return true;
     }
 
     if (key_matches(key, "ctrl+l")) {
         tui_render_full(tui);
-        return;
+        return true;
     }
 
-    /* Scroll history: up/down when not focused on input would scroll,
-       but since input captures keys we leave this for future enhancement.
-       For now, pageup/pagedown could be used. */
+    /* Let input widget handle all other keys */
+    if (state->input && state->input->handle_input) {
+        const char *raw = key->printable[0] ? key->printable : key->id;
+        state->input->handle_input(state->input, raw, (int)strlen(raw));
+        tui_invalidate(tui);
+    }
+    return true;
 }
 
 /* ---- Session Restore ---- */
