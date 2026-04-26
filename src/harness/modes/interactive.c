@@ -174,9 +174,28 @@ static void update_status_line(InteractiveState *state) {
 
 /* ---- Agent Event Callback ---- */
 
+static const char *agent_event_name(AgentEventType t) {
+    static const char *names[] = {
+        "AGENT_START", "AGENT_END", "TURN_START", "TURN_END",
+        "MSG_START", "MSG_UPDATE", "MSG_END",
+        "TOOL_EXEC_START", "TOOL_EXEC_UPDATE", "TOOL_EXEC_END"
+    };
+    return t <= AGENT_EVENT_TOOL_EXEC_END ? names[t] : "UNKNOWN";
+}
+
 static void on_agent_event(AgentEvent *event, void *userdata) {
     InteractiveState *state = userdata;
     if (!state || !state->tui) return;
+
+    LOG_DEBUG("Event: %s", agent_event_name(event->type));
+    if (event->stream_event) {
+        LOG_DEBUG("  stream type=%d delta=%.50s",
+                  event->stream_event->type,
+                  event->stream_event->delta ? event->stream_event->delta : "(null)");
+    }
+    if (event->tool_name) {
+        LOG_DEBUG("  tool=%s", event->tool_name);
+    }
 
     switch (event->type) {
     case AGENT_EVENT_MESSAGE_START:
@@ -377,9 +396,13 @@ static void *agent_thread_fn(void *raw_arg) {
     char *prompt_text = arg->prompt;
     free(arg);
 
+    LOG_INFO("Agent thread: prompt='%.100s'", prompt_text);
+
     Message *prompt_msg = message_create_user(prompt_text);
-    (void)agent_prompt(state->agent, &prompt_msg, 1, &state->agent_config,
-                       on_agent_event, state);
+    int rc = agent_prompt(state->agent, &prompt_msg, 1, &state->agent_config,
+                          on_agent_event, state);
+
+    LOG_INFO("Agent thread: agent_prompt returned %d", rc);
 
     state->phase = ISTATE_IDLE;
     rebuild_tui_components(state);
@@ -610,6 +633,17 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
                            const char *model_pattern, const char *provider) {
     if (!pi) return -1;
 
+    /* Open log file */
+    const char *agent_dir = config_agent_dir();
+    if (agent_dir) {
+        fs_mkdir_p(agent_dir);
+        char log_path[512];
+        snprintf(log_path, sizeof(log_path), "%s/pi.log", agent_dir);
+        pi_log_open(log_path);
+        pi_log_set_level(LOG_DEBUG);
+    }
+    LOG_INFO("=== Pi starting ===");
+
     /* Initialize subsystems */
     http_global_init();
     ai_registry_init();
@@ -636,6 +670,9 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
             if (key) { model = all_models[i]; api_key = key; }
         }
     }
+
+    LOG_INFO("Model: %s (%s)", model ? model->id : "none", model ? model->provider : "none");
+    LOG_INFO("API key: %s", api_key ? "set" : "NOT SET");
 
     /* Create interactive state (model/api_key may be NULL) */
     InteractiveState *state = interactive_state_create(pi, model, api_key);

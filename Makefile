@@ -13,7 +13,8 @@ YAML_SRC = $(wildcard deps/libyaml/*.c)
 DEPS_OBJ = $(DEPS_SRC:.c=.o) $(LUA_SRC:.c=.o) $(YAML_SRC:.c=.o)
 
 UTIL_SRC = src/util/arena.c src/util/str.c src/util/hashmap.c \
-           src/util/json.c src/util/http.c src/util/fs.c src/util/process.c
+           src/util/json.c src/util/http.c src/util/fs.c src/util/process.c \
+           src/util/log.c
 UTIL_OBJ = $(UTIL_SRC:.c=.o)
 
 AI_SRC = src/ai/types.c src/ai/registry.c src/ai/validation.c \

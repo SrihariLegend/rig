@@ -18,6 +18,7 @@
 #include "harness/modes/interactive.h"
 #include "pi.h"
 #include "util/http.h"
+#include "util/fs.h"
 #include "util/log.h"
 
 static void usage(const char *prog) {
@@ -176,6 +177,15 @@ int main(int argc, char **argv) {
     if (!prompt || !prompt[0]) {
         fprintf(stderr, "Error: No prompt provided. Use: pi -p \"your prompt\"\n");
         return 1;
+    }
+
+    /* Open log file for print mode too */
+    const char *agent_dir = config_agent_dir();
+    if (agent_dir) {
+        fs_mkdir_p(agent_dir);
+        char log_path[512];
+        snprintf(log_path, sizeof(log_path), "%s/pi.log", agent_dir);
+        pi_log_open(log_path);
     }
 
     http_global_init();

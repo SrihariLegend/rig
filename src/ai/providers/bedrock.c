@@ -256,6 +256,7 @@ static void bedrock_raw_data(const unsigned char *data, size_t len, void *ctx) {
 static int bedrock_stream_apikey(const Model *model, const Message *messages, int msg_count,
                                  const char *system_prompt, const Tool *tools, int tool_count,
                                  StreamCallback cb, void *userdata) {
+    LOG_INFO("Bedrock API: model=%s msg_count=%d tool_count=%d", model->id, msg_count, tool_count);
     const char *api_key = get_bedrock_api_key();
     const char *region = getenv("AWS_REGION");
     if (!region) region = "us-east-1";

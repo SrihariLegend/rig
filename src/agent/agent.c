@@ -401,6 +401,9 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
         while (has_more_tool_calls || pending_count > 0) {
             if (state->abort_requested) break;
 
+            LOG_INFO("Agent loop: new turn, msg_count=%d, tool_calls=%d",
+                     state->message_count, has_more_tool_calls);
+
             AgentEvent turn_start = { .type = AGENT_EVENT_TURN_START };
             cb(&turn_start, userdata);
 
@@ -460,7 +463,25 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
 
             Message *assistant = bridge.final_message;
             if (assistant) {
+                LOG_INFO("Agent: got assistant message, content_count=%d", assistant->content_count);
+                for (int ci = 0; ci < assistant->content_count; ci++) {
+                    const char *ct = "?";
+                    switch (assistant->content[ci].type) {
+                        case CONTENT_TEXT: ct = "text"; break;
+                        case CONTENT_TOOL_CALL: ct = "tool_call"; break;
+                        case CONTENT_THINKING: ct = "thinking"; break;
+                        case CONTENT_IMAGE: ct = "image"; break;
+                    }
+                    LOG_DEBUG("Agent:   content[%d] type=%s", ci, ct);
+                    if (assistant->content[ci].type == CONTENT_TOOL_CALL) {
+                        LOG_DEBUG("Agent:     tool=%s id=%s",
+                                  assistant->content[ci].tool_call.name ? assistant->content[ci].tool_call.name : "?",
+                                  assistant->content[ci].tool_call.id ? assistant->content[ci].tool_call.id : "?");
+                    }
+                }
                 agent_state_add_message(state, assistant);
+            } else {
+                LOG_WARN("Agent: no assistant message from API");
             }
 
             has_more_tool_calls = false;
@@ -471,6 +492,7 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
 
                 execute_tool_calls(state, assistant, config, cb, userdata,
                                   &tool_results, &result_count, &should_continue);
+                LOG_INFO("Agent: tool execution done, result_count=%d, continue=%d", result_count, should_continue);
 
                 for (int i = 0; i < result_count; i++) {
                     agent_state_add_message(state, tool_results[i]);
