@@ -79,7 +79,7 @@ static char **render_all(TUI *tui, int *total_lines) {
     int count = 0;
 
     for (int c = 0; c < tui->component_count; c++) {
-        if (!tui->components[c]->render) continue;
+        if (!tui->components[c] || !tui->components[c]->render) continue;
 
         int comp_lines = 0;
         char **comp_output = tui->components[c]->render(
@@ -361,7 +361,6 @@ int tui_run(TUI *tui) {
     terminal_enter_raw_mode();
     terminal_enable_kitty_keyboard();
     terminal_enable_bracketed_paste();
-    terminal_enable_mouse();
     terminal_hide_cursor();
     terminal_clear_screen();
 
@@ -411,7 +410,7 @@ int tui_run(TUI *tui) {
                 /* Dispatch to focused component */
                 for (int i = 0; i < tui->component_count; i++) {
                     Component *comp = tui->components[i];
-                    if (comp->focused && comp->handle_input) {
+                    if (comp && comp->focused && comp->handle_input) {
                         comp->handle_input(comp, buf, (int)n);
                         tui->dirty = true;
                     }
@@ -442,7 +441,6 @@ int tui_run(TUI *tui) {
     }
 
     /* Cleanup: disable protocols, exit raw mode, show cursor */
-    terminal_disable_mouse();
     terminal_disable_bracketed_paste();
     terminal_disable_kitty_keyboard();
     terminal_show_cursor();

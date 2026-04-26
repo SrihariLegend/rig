@@ -627,9 +627,9 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
             "Then restart pi. Press Ctrl+C to exit.");
     }
 
-    /* Build initial layout */
+    /* Build initial layout (direct call, we're on main thread before tui_run) */
     update_status_line(state);
-    rebuild_tui_components(state);
+    do_rebuild_tui(state);
 
     /* Run the TUI event loop */
     int rc = tui_run(state->tui);
