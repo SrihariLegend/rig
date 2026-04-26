@@ -1,0 +1,142 @@
+#include "bedrock.h"
+#include "ai/types.h"
+#include "util/str.h"
+#include "util/http.h"
+#include "util/log.h"
+#include "cjson/cJSON.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+typedef struct {
+    StreamCallback cb;
+    void *userdata;
+    Message *partial;
+} BedrockStreamCtx;
+
+static void bedrock_sse_handler(const char *event_type, const char *data, void *userdata) {
+    BedrockStreamCtx *ctx = (BedrockStreamCtx *)userdata;
+    (void)event_type;
+
+    if (!data) return;
+
+    cJSON *json = cJSON_Parse(data);
+    if (!json) return;
+
+    cJSON *type = cJSON_GetObjectItem(json, "type");
+    if (!type || !cJSON_IsString(type)) {
+        cJSON_Delete(json);
+        return;
+    }
+
+    if (strcmp(type->valuestring, "content_block_delta") == 0) {
+        cJSON *delta = cJSON_GetObjectItem(json, "delta");
+        if (delta) {
+            cJSON *dt = cJSON_GetObjectItem(delta, "type");
+            if (dt && cJSON_IsString(dt) && strcmp(dt->valuestring, "text_delta") == 0) {
+                cJSON *text = cJSON_GetObjectItem(delta, "text");
+                if (text && cJSON_IsString(text)) {
+                    StreamEvent evt = { .type = EVENT_TEXT_DELTA, .delta = text->valuestring };
+                    ctx->cb(&evt, ctx->userdata);
+                }
+            }
+        }
+    } else if (strcmp(type->valuestring, "message_stop") == 0) {
+        if (!ctx->partial) {
+            ctx->partial = calloc(1, sizeof(Message));
+            ctx->partial->role = ROLE_ASSISTANT;
+        }
+        StreamEvent done = { .type = EVENT_DONE, .message = ctx->partial };
+        ctx->cb(&done, ctx->userdata);
+    }
+
+    cJSON_Delete(json);
+}
+
+static int bedrock_stream(const Model *model, const Message *messages, int msg_count,
+                          const char *system_prompt, const Tool *tools, int tool_count,
+                          const StreamOptions *options,
+                          StreamCallback cb, void *userdata) {
+    (void)options; (void)tools; (void)tool_count;
+    if (!model || !cb) return -1;
+
+    const char *region = getenv("AWS_REGION");
+    if (!region) region = "us-east-1";
+
+    const char *access_key = getenv("AWS_ACCESS_KEY_ID");
+    const char *secret_key = getenv("AWS_SECRET_ACCESS_KEY");
+    if (!access_key || !secret_key) {
+        LOG_ERROR("AWS credentials not set");
+        return -1;
+    }
+
+    char url[512];
+    snprintf(url, sizeof(url),
+        "https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke-with-response-stream",
+        region, model->id);
+
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "anthropic_version", "bedrock-2023-05-31");
+    cJSON_AddNumberToObject(body, "max_tokens", model->max_tokens > 0 ? model->max_tokens : 4096);
+
+    if (system_prompt) {
+        cJSON_AddStringToObject(body, "system", system_prompt);
+    }
+
+    cJSON *msgs = cJSON_CreateArray();
+    for (int i = 0; i < msg_count; i++) {
+        cJSON *msg = cJSON_CreateObject();
+        cJSON_AddStringToObject(msg, "role",
+            messages[i].role == ROLE_USER ? "user" : "assistant");
+        cJSON *content = cJSON_CreateArray();
+        for (int j = 0; j < messages[i].content_count; j++) {
+            if (messages[i].content[j].type == CONTENT_TEXT) {
+                cJSON *block = cJSON_CreateObject();
+                cJSON_AddStringToObject(block, "type", "text");
+                cJSON_AddStringToObject(block, "text",
+                    messages[i].content[j].text.text ? messages[i].content[j].text.text : "");
+                cJSON_AddItemToArray(content, block);
+            }
+        }
+        cJSON_AddItemToObject(msg, "content", content);
+        cJSON_AddItemToArray(msgs, msg);
+    }
+    cJSON_AddItemToObject(body, "messages", msgs);
+
+    char *body_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+
+    const char *headers[] = {
+        "Content-Type: application/json",
+        NULL,
+    };
+
+    BedrockStreamCtx ctx = { .cb = cb, .userdata = userdata };
+
+    SSERequest sse_req = { .url = url, .headers = headers, .body = body_str, .body_len = strlen(body_str), .on_event = bedrock_sse_handler, .ctx = &ctx };
+    int result = http_stream_sse(&sse_req);
+
+    free(body_str);
+    if (ctx.partial) message_free(ctx.partial);
+
+    return result;
+}
+
+static int bedrock_stream_simple(const Model *model, const Message *messages, int msg_count,
+                                 const char *system_prompt, const Tool *tools, int tool_count,
+                                 const SimpleStreamOptions *options,
+                                 StreamCallback cb, void *userdata) {
+    (void)options;
+    return bedrock_stream(model, messages, msg_count, system_prompt,
+                         tools, tool_count, NULL, cb, userdata);
+}
+
+static const ApiProvider bedrock_prov = {
+    .api = "bedrock",
+    .stream = bedrock_stream,
+    .stream_simple = bedrock_stream_simple,
+};
+
+void bedrock_provider_register(void) {
+    ai_register_provider(&bedrock_prov);
+}
