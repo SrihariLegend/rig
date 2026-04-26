@@ -19,7 +19,7 @@ static const struct { const char *provider; const char *env_vars[4]; } key_map[]
     { "xai",        { "XAI_API_KEY", NULL } },
     { "groq",       { "GROQ_API_KEY", NULL } },
     { "openrouter", { "OPENROUTER_API_KEY", NULL } },
-    { "bedrock",    { "AWS_ACCESS_KEY_ID", NULL } },
+    { "bedrock",    { "BEDROCK_API_KEY", "AWS_ACCESS_KEY_ID", NULL } },
 };
 
 static const int key_map_count = sizeof(key_map) / sizeof(key_map[0]);
@@ -162,6 +162,14 @@ char *auth_get_api_key(const char *provider) {
     AuthCredentials *creds = auth_load();
     if (creds && creds->provider && strcmp(creds->provider, provider) == 0) {
         if (strcmp(provider, "bedrock") == 0) {
+            if (creds->api_key) {
+                setenv("BEDROCK_API_KEY", creds->api_key, 0);
+                if (creds->aws_region)
+                    setenv("AWS_REGION", creds->aws_region, 0);
+                char *key = strdup(creds->api_key);
+                auth_credentials_free(creds);
+                return key;
+            }
             if (creds->aws_access_key) {
                 setenv("AWS_ACCESS_KEY_ID", creds->aws_access_key, 0);
                 if (creds->aws_secret_key)
@@ -268,6 +276,37 @@ int auth_interactive_setup(void) {
     fprintf(stderr, "\n  Provider: %s\n\n", provider);
 
     if (strcmp(provider, "bedrock") == 0) {
+        fprintf(stderr, "  Bedrock auth method:\n");
+        fprintf(stderr, "    a) API Key (starts with ABSK or similar)\n");
+        fprintf(stderr, "    b) IAM Credentials (Access Key + Secret Key)\n\n");
+
+        char *method = read_line_visible("  Enter a or b: ");
+        if (!method) { fprintf(stderr, "  Cancelled.\n"); return -1; }
+
+        bool use_apikey = (method[0] == 'a' || method[0] == 'A');
+        free(method);
+
+        if (use_apikey) {
+            char *api_key = read_line_hidden("  Bedrock API Key: ");
+            if (!api_key) { fprintf(stderr, "  Cancelled.\n"); return -1; }
+
+            char *region = read_line_visible("  AWS Region [us-east-1]: ");
+            if (!region || !region[0]) {
+                free(region);
+                region = strdup("us-east-1");
+            }
+
+            int rc = auth_save(provider, api_key, NULL, NULL, region, NULL);
+            free(api_key);
+            free(region);
+
+            if (rc == 0) {
+                fprintf(stderr, "\n  Saved to %s\n", config_auth_path());
+                fprintf(stderr, "  Provider: bedrock (API key)\n\n");
+            }
+            return rc;
+        }
+
         char *access = read_line_hidden("  AWS Access Key ID: ");
         if (!access) { fprintf(stderr, "  Cancelled.\n"); return -1; }
 
@@ -291,7 +330,7 @@ int auth_interactive_setup(void) {
 
         if (rc == 0) {
             fprintf(stderr, "\n  Saved to %s\n", config_auth_path());
-            fprintf(stderr, "  Provider: bedrock\n\n");
+            fprintf(stderr, "  Provider: bedrock (IAM)\n\n");
         }
         return rc;
     }

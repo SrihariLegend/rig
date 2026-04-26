@@ -54,31 +54,12 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
     cJSON_Delete(json);
 }
 
-static int bedrock_stream(const Model *model, const Message *messages, int msg_count,
-                          const char *system_prompt, const Tool *tools, int tool_count,
-                          const StreamOptions *options,
-                          StreamCallback cb, void *userdata) {
-    (void)options; (void)tools; (void)tool_count;
-    if (!model || !cb) return -1;
-
-    const char *region = getenv("AWS_REGION");
-    if (!region) region = "us-east-1";
-
-    const char *access_key = getenv("AWS_ACCESS_KEY_ID");
-    const char *secret_key = getenv("AWS_SECRET_ACCESS_KEY");
-    if (!access_key || !secret_key) {
-        LOG_ERROR("AWS credentials not set");
-        return -1;
-    }
-
-    char url[512];
-    snprintf(url, sizeof(url),
-        "https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke-with-response-stream",
-        region, model->id);
-
+static cJSON *build_body(const Model *model, const Message *messages, int msg_count,
+                         const char *system_prompt) {
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "anthropic_version", "bedrock-2023-05-31");
     cJSON_AddNumberToObject(body, "max_tokens", model->max_tokens > 0 ? model->max_tokens : 4096);
+    cJSON_AddBoolToObject(body, "stream", 1);
 
     if (system_prompt) {
         cJSON_AddStringToObject(body, "system", system_prompt);
@@ -104,6 +85,74 @@ static int bedrock_stream(const Model *model, const Message *messages, int msg_c
     }
     cJSON_AddItemToObject(body, "messages", msgs);
 
+    return body;
+}
+
+static bool has_bedrock_api_key(void) {
+    const char *key = getenv("BEDROCK_API_KEY");
+    return key && key[0];
+}
+
+static int bedrock_stream_apikey(const Model *model, const Message *messages, int msg_count,
+                                 const char *system_prompt, StreamCallback cb, void *userdata) {
+    const char *api_key = getenv("BEDROCK_API_KEY");
+    const char *region = getenv("AWS_REGION");
+    if (!region) region = "us-east-1";
+
+    char url[512];
+    snprintf(url, sizeof(url),
+        "https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke-with-response-stream",
+        region, model->id);
+
+    cJSON *body = build_body(model, messages, msg_count, system_prompt);
+    char *body_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+
+    char auth_header[512];
+    snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+
+    const char *headers[] = {
+        "Content-Type: application/json",
+        auth_header,
+        NULL,
+    };
+
+    BedrockStreamCtx ctx = { .cb = cb, .userdata = userdata };
+
+    SSERequest sse_req = {
+        .url = url,
+        .headers = headers,
+        .body = body_str,
+        .body_len = strlen(body_str),
+        .on_event = bedrock_sse_handler,
+        .ctx = &ctx,
+    };
+    int result = http_stream_sse(&sse_req);
+
+    free(body_str);
+    if (ctx.partial) message_free(ctx.partial);
+
+    return result;
+}
+
+static int bedrock_stream_sigv4(const Model *model, const Message *messages, int msg_count,
+                                const char *system_prompt, StreamCallback cb, void *userdata) {
+    const char *region = getenv("AWS_REGION");
+    if (!region) region = "us-east-1";
+
+    const char *access_key = getenv("AWS_ACCESS_KEY_ID");
+    const char *secret_key = getenv("AWS_SECRET_ACCESS_KEY");
+    if (!access_key || !secret_key) {
+        LOG_ERROR("AWS credentials not set");
+        return -1;
+    }
+
+    char url[512];
+    snprintf(url, sizeof(url),
+        "https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke-with-response-stream",
+        region, model->id);
+
+    cJSON *body = build_body(model, messages, msg_count, system_prompt);
     char *body_str = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
 
@@ -112,7 +161,6 @@ static int bedrock_stream(const Model *model, const Message *messages, int msg_c
         NULL,
     };
 
-    /* Sign the request with SigV4 */
     const char *session_token = getenv("AWS_SESSION_TOKEN");
     SigV4Request sig_req = {
         .method = "POST",
@@ -155,6 +203,19 @@ static int bedrock_stream(const Model *model, const Message *messages, int msg_c
     if (ctx.partial) message_free(ctx.partial);
 
     return result;
+}
+
+static int bedrock_stream(const Model *model, const Message *messages, int msg_count,
+                          const char *system_prompt, const Tool *tools, int tool_count,
+                          const StreamOptions *options,
+                          StreamCallback cb, void *userdata) {
+    (void)options; (void)tools; (void)tool_count;
+    if (!model || !cb) return -1;
+
+    if (has_bedrock_api_key()) {
+        return bedrock_stream_apikey(model, messages, msg_count, system_prompt, cb, userdata);
+    }
+    return bedrock_stream_sigv4(model, messages, msg_count, system_prompt, cb, userdata);
 }
 
 static int bedrock_stream_simple(const Model *model, const Message *messages, int msg_count,
