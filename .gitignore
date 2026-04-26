@@ -20,3 +20,4 @@ test/test_workflow
 deps/lua5.4/
 deps/libyaml/
 deps/libyaml-src/
+pi_asan
