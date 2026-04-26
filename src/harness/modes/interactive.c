@@ -178,18 +178,6 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
     InteractiveState *state = userdata;
     if (!state || !state->tui) return;
 
-    FILE *dbg = fopen("/tmp/pi_debug.log", "a");
-    if (dbg) {
-        fprintf(dbg, "AGENT_EVENT: type=%d\n", event->type);
-        if (event->stream_event) {
-            fprintf(dbg, "  stream_event type=%d delta=%s error=%s\n",
-                    event->stream_event->type,
-                    event->stream_event->delta ? event->stream_event->delta : "(null)",
-                    event->stream_event->error_message ? event->stream_event->error_message : "(null)");
-        }
-        fflush(dbg); fclose(dbg);
-    }
-
     switch (event->type) {
     case AGENT_EVENT_MESSAGE_START:
         /* A new assistant message is starting */
@@ -389,34 +377,9 @@ static void *agent_thread_fn(void *raw_arg) {
     char *prompt_text = arg->prompt;
     free(arg);
 
-    FILE *dbg = fopen("/tmp/pi_debug.log", "a");
-    if (dbg) {
-        fprintf(dbg, "AGENT_THREAD: starting with prompt='%s' model=%p api_key=%s\n",
-                prompt_text,
-                (void*)state->agent_config.model,
-                state->agent_config.api_key ? "set" : "NULL");
-        if (state->agent_config.model) {
-            fprintf(dbg, "AGENT_THREAD: model id='%s' api='%s' provider='%s'\n",
-                    state->agent_config.model->id,
-                    state->agent_config.model->api,
-                    state->agent_config.model->provider);
-        }
-        fprintf(dbg, "AGENT_THREAD: system_prompt=%s tool_count=%d msg_count=%d\n",
-                state->agent->system_prompt ? "set" : "NULL",
-                state->agent->tool_count,
-                state->agent->message_count);
-        fflush(dbg); fclose(dbg);
-    }
-
     Message *prompt_msg = message_create_user(prompt_text);
-    int rc = agent_prompt(state->agent, &prompt_msg, 1, &state->agent_config,
-                 on_agent_event, state);
-
-    dbg = fopen("/tmp/pi_debug.log", "a");
-    if (dbg) {
-        fprintf(dbg, "AGENT_THREAD: agent_prompt returned %d\n", rc);
-        fflush(dbg); fclose(dbg);
-    }
+    (void)agent_prompt(state->agent, &prompt_msg, 1, &state->agent_config,
+                       on_agent_event, state);
 
     state->phase = ISTATE_IDLE;
     rebuild_tui_components(state);
@@ -430,14 +393,55 @@ static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
 
     if (!state || !key) return false;
 
-    FILE *dbg = fopen("/tmp/pi_debug.log", "a");
-    if (dbg) {
-        fprintf(dbg, "KEY: id='%s' printable='%s' raw_len=%d raw[0]=0x%02x state=%p input=%p\n",
-                key->id, key->printable, key->raw_len,
-                key->raw_len > 0 ? (unsigned char)key->raw[0] : 0,
-                (void*)state, (void*)state->input);
-        fflush(dbg);
-        fclose(dbg);
+    if (key_matches(key, "pageup")) {
+        tui->auto_scroll = false;
+        tui->scroll_offset -= (tui->height - 2);
+        if (tui->scroll_offset < 0) tui->scroll_offset = 0;
+        tui_invalidate(tui);
+        return true;
+    }
+
+    if (key_matches(key, "pagedown")) {
+        int viewport_height = tui->height;
+        int max_offset = tui->virtual_line_count - viewport_height;
+        if (max_offset < 0) max_offset = 0;
+        tui->scroll_offset += (tui->height - 2);
+        if (tui->scroll_offset >= max_offset) {
+            tui->scroll_offset = max_offset;
+            tui->auto_scroll = true;
+        }
+        tui_invalidate(tui);
+        return true;
+    }
+
+    if (key_matches(key, "end")) {
+        int viewport_height = tui->height;
+        int max_offset = tui->virtual_line_count - viewport_height;
+        if (max_offset < 0) max_offset = 0;
+        tui->scroll_offset = max_offset;
+        tui->auto_scroll = true;
+        tui_invalidate(tui);
+        return true;
+    }
+
+    if (key_matches(key, "shift+up")) {
+        tui->auto_scroll = false;
+        if (tui->scroll_offset > 0) tui->scroll_offset--;
+        tui_invalidate(tui);
+        return true;
+    }
+
+    if (key_matches(key, "shift+down")) {
+        int viewport_height = tui->height;
+        int max_offset = tui->virtual_line_count - viewport_height;
+        if (max_offset < 0) max_offset = 0;
+        tui->scroll_offset++;
+        if (tui->scroll_offset >= max_offset) {
+            tui->scroll_offset = max_offset;
+            tui->auto_scroll = true;
+        }
+        tui_invalidate(tui);
+        return true;
     }
 
     if (key_matches(key, "enter")) {
@@ -476,18 +480,8 @@ static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
 
     /* Let input widget handle all other keys via raw bytes */
     if (state->input && state->input->handle_input && key->raw_len > 0) {
-        FILE *dbg2 = fopen("/tmp/pi_debug.log", "a");
-        if (dbg2) { fprintf(dbg2, "BEFORE input->handle_input\n"); fflush(dbg2); fclose(dbg2); }
-
         state->input->handle_input(state->input, key->raw, key->raw_len);
-
-        dbg2 = fopen("/tmp/pi_debug.log", "a");
-        if (dbg2) { fprintf(dbg2, "AFTER input->handle_input\n"); fflush(dbg2); fclose(dbg2); }
-
         tui_invalidate(tui);
-
-        dbg2 = fopen("/tmp/pi_debug.log", "a");
-        if (dbg2) { fprintf(dbg2, "AFTER tui_invalidate, returning\n"); fflush(dbg2); fclose(dbg2); }
     }
     return true;
 }

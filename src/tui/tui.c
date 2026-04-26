@@ -24,6 +24,7 @@ TUI *tui_create(void) {
     tui->components = calloc(tui->component_capacity, sizeof(Component *));
     tui->overlay_capacity = 4;
     tui->overlays = calloc(tui->overlay_capacity, sizeof(Overlay));
+    tui->auto_scroll = true;
 
     terminal_get_size(&tui->width, &tui->height);
     tui->dirty = true;
@@ -42,6 +43,7 @@ void tui_free(TUI *tui) {
     free(tui->components);
     free(tui->overlays);
     free_lines(tui->previous_lines, tui->previous_line_count);
+    free_lines(tui->virtual_lines, tui->virtual_line_count);
     free(tui);
 }
 
@@ -74,7 +76,7 @@ void tui_remove_component(TUI *tui, Component *comp) {
 }
 
 static char **render_all(TUI *tui, int *total_lines) {
-    int capacity = tui->height;
+    int capacity = 64;
     char **lines = calloc(capacity, sizeof(char *));
     int count = 0;
 
@@ -87,7 +89,7 @@ static char **render_all(TUI *tui, int *total_lines) {
 
         if (!comp_output) continue;
 
-        for (int i = 0; i < comp_lines && count < tui->height; i++) {
+        for (int i = 0; i < comp_lines; i++) {
             if (count >= capacity) {
                 capacity *= 2;
                 lines = realloc(lines, capacity * sizeof(char *));
@@ -97,14 +99,6 @@ static char **render_all(TUI *tui, int *total_lines) {
 
         for (int i = 0; i < comp_lines; i++) free(comp_output[i]);
         free(comp_output);
-    }
-
-    while (count < tui->height) {
-        if (count >= capacity) {
-            capacity *= 2;
-            lines = realloc(lines, capacity * sizeof(char *));
-        }
-        lines[count++] = strdup("");
     }
 
     *total_lines = count;
@@ -234,32 +228,60 @@ void tui_render(TUI *tui) {
     int new_count = 0;
     char **new_lines = render_all(tui, &new_count);
 
-    composite_overlays(tui, new_lines, new_count);
+    /* Store the full virtual buffer (no height limit) */
+    free_lines(tui->virtual_lines, tui->virtual_line_count);
+    tui->virtual_lines = new_lines;
+    tui->virtual_line_count = new_count;
 
+    /* Viewport height: reserve 2 lines (status + input are part of components,
+       but the scrollable area is tui->height lines total) */
+    int viewport_height = tui->height;
+    if (viewport_height < 1) viewport_height = 1;
+
+    /* Auto-scroll: pin to bottom so newest content is visible */
+    if (tui->auto_scroll) {
+        tui->scroll_offset = new_count - viewport_height;
+    }
+
+    /* Clamp scroll_offset */
+    if (tui->scroll_offset < 0) tui->scroll_offset = 0;
+    if (new_count > viewport_height && tui->scroll_offset > new_count - viewport_height) {
+        tui->scroll_offset = new_count - viewport_height;
+    }
+
+    /* Build the displayed lines for this viewport */
+    int display_count = viewport_height;
+    char **display_lines = calloc(display_count, sizeof(char *));
+    for (int i = 0; i < display_count; i++) {
+        int src = tui->scroll_offset + i;
+        if (src >= 0 && src < new_count && tui->virtual_lines[src]) {
+            display_lines[i] = strdup(tui->virtual_lines[src]);
+        } else {
+            display_lines[i] = strdup("");
+        }
+    }
+
+    /* Composite overlays onto the displayed lines (viewport-relative) */
+    composite_overlays(tui, display_lines, display_count);
+
+    /* Diff against previous displayed lines and update only changed rows */
     terminal_sync_begin();
 
-    int first_changed = -1;
-    int last_changed = -1;
-
-    int max_lines = new_count < tui->previous_line_count ? tui->previous_line_count : new_count;
+    int max_lines = display_count > tui->previous_line_count
+                    ? display_count : tui->previous_line_count;
+    if (max_lines > viewport_height) max_lines = viewport_height;
 
     for (int i = 0; i < max_lines; i++) {
         const char *old_line = (i < tui->previous_line_count && tui->previous_lines[i])
             ? tui->previous_lines[i] : "";
-        const char *new_line = (i < new_count && new_lines[i]) ? new_lines[i] : "";
+        const char *new_line = (i < display_count && display_lines[i])
+            ? display_lines[i] : "";
 
         if (strcmp(old_line, new_line) != 0) {
-            if (first_changed == -1) first_changed = i;
-            last_changed = i;
-        }
-    }
-
-    if (first_changed >= 0) {
-        for (int i = first_changed; i <= last_changed && i < new_count; i++) {
             terminal_move_cursor(i + 1, 1);
             terminal_clear_line();
-            if (new_lines[i]) {
-                terminal_write_str(new_lines[i]);
+            if (display_lines[i]) {
+                terminal_write_str(display_lines[i]);
             }
         }
     }
@@ -267,8 +289,8 @@ void tui_render(TUI *tui) {
     terminal_sync_end();
 
     free_lines(tui->previous_lines, tui->previous_line_count);
-    tui->previous_lines = new_lines;
-    tui->previous_line_count = new_count;
+    tui->previous_lines = display_lines;
+    tui->previous_line_count = display_count;
     tui->dirty = false;
 }
 
@@ -429,11 +451,6 @@ int tui_run(TUI *tui) {
             }
         }
 
-        {
-            FILE *dbg = fopen("/tmp/pi_debug.log", "a");
-            if (dbg) { fprintf(dbg, "LOOP: tick_handler=%p dirty=%d\n", (void*)tui->tick_handler, tui->dirty); fflush(dbg); fclose(dbg); }
-        }
-
         /* Call tick handler (for deferred updates from other threads) */
         if (tui->tick_handler) {
             tui->tick_handler(tui, tui->tick_handler_ctx);
@@ -441,10 +458,6 @@ int tui_run(TUI *tui) {
 
         /* Render if dirty */
         if (tui->dirty) {
-            {
-                FILE *dbg = fopen("/tmp/pi_debug.log", "a");
-                if (dbg) { fprintf(dbg, "RENDERING: comp_count=%d\n", tui->component_count); fflush(dbg); fclose(dbg); }
-            }
             tui_render(tui);
         }
     }

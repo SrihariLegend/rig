@@ -47,6 +47,10 @@ struct TUI {
     Overlay *overlays;
     int overlay_count;
     int overlay_capacity;
+    char **virtual_lines;
+    int virtual_line_count;
+    int scroll_offset;
+    bool auto_scroll;
     int width;
     int height;
     bool dirty;
