@@ -23,12 +23,15 @@
 static void usage(const char *prog) {
     fprintf(stderr,
         "Usage: %s [options] [prompt]\n"
+        "       %s auth              Set up API key / provider\n"
+        "       %s auth logout       Remove saved credentials\n"
+        "       %s auth status       Show current auth config\n"
         "\n"
         "Options:\n"
         "  -p, --print          Print mode (single-shot, output to stdout)\n"
-        "  -m, --model MODEL    Model to use (e.g., claude-opus-4-7, claude-sonnet-4-6)\n"
+        "  -m, --model MODEL    Model to use (e.g., claude-opus-4-7, gpt-4o)\n"
         "  -s, --session ID     Resume an existing session by ID\n"
-        "  --provider PROVIDER  Provider (e.g., anthropic, openai)\n"
+        "  --provider PROVIDER  Provider (e.g., anthropic, openai, bedrock)\n"
         "  --thinking LEVEL     Thinking level (off, minimal, low, medium, high, xhigh)\n"
         "  --json               JSON event output mode\n"
         "  --no-tools           Disable built-in tools\n"
@@ -37,11 +40,11 @@ static void usage(const char *prog) {
         "\n"
         "Examples:\n"
         "  %s                                   Interactive mode\n"
+        "  %s auth                               Set up credentials\n"
         "  %s --session abc123                   Resume session\n"
         "  %s -p \"What is 2+2?\"\n"
         "  %s -p -m claude-sonnet-4-6 \"Explain quicksort\"\n"
-        "  echo \"Fix this bug\" | %s -p\n"
-        "\n", prog, prog, prog, prog, prog);
+        "\n", prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 static ThinkingLevel parse_thinking(const char *s) {
@@ -56,7 +59,57 @@ static ThinkingLevel parse_thinking(const char *s) {
     return THINKING_OFF;
 }
 
+static int cmd_auth(int argc, char **argv) {
+    if (argc >= 3 && strcmp(argv[2], "logout") == 0) {
+        int rc = auth_logout();
+        if (rc == 0) {
+            fprintf(stderr, "Logged out. Credentials removed.\n");
+        } else {
+            fprintf(stderr, "No credentials to remove.\n");
+        }
+        return rc == 0 ? 0 : 1;
+    }
+
+    if (argc >= 3 && strcmp(argv[2], "status") == 0) {
+        AuthCredentials *creds = auth_load();
+        if (creds && creds->provider) {
+            fprintf(stderr, "Provider: %s\n", creds->provider);
+            if (creds->api_key) {
+                int len = (int)strlen(creds->api_key);
+                if (len > 8) {
+                    fprintf(stderr, "API Key:  %.*s...%s\n", 4, creds->api_key, creds->api_key + len - 4);
+                } else {
+                    fprintf(stderr, "API Key:  ****\n");
+                }
+            }
+            if (creds->aws_access_key) {
+                fprintf(stderr, "AWS Key:  %.*s....\n", 4, creds->aws_access_key);
+            }
+            if (creds->aws_region) {
+                fprintf(stderr, "Region:   %s\n", creds->aws_region);
+            }
+            fprintf(stderr, "Config:   %s\n", config_auth_path());
+            auth_credentials_free(creds);
+        } else {
+            auth_credentials_free(creds);
+            if (auth_is_configured()) {
+                fprintf(stderr, "Auth: via environment variables\n");
+            } else {
+                fprintf(stderr, "No credentials configured.\n");
+                fprintf(stderr, "Run: pi auth\n");
+            }
+        }
+        return 0;
+    }
+
+    return auth_interactive_setup();
+}
+
 int main(int argc, char **argv) {
+    if (argc >= 2 && strcmp(argv[1], "auth") == 0) {
+        return cmd_auth(argc, argv);
+    }
+
     bool print_mode = false;
     bool json_mode = false;
     bool no_tools = false;
