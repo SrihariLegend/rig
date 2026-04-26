@@ -113,3 +113,11 @@ void terminal_sync_begin(void) {
 void terminal_sync_end(void) {
     write(STDOUT_FILENO, "\x1b[?2026l", 8);
 }
+
+void terminal_enter_alt_screen(void) {
+    write(STDOUT_FILENO, "\x1b[?1049h", 8);
+}
+
+void terminal_exit_alt_screen(void) {
+    write(STDOUT_FILENO, "\x1b[?1049l", 8);
+}

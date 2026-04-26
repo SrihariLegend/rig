@@ -384,11 +384,11 @@ int tui_run(TUI *tui) {
     sigaction(SIGWINCH, &sa, NULL);
 
     /* Enter raw mode and enable terminal protocols */
+    terminal_enter_alt_screen();
     terminal_enter_raw_mode();
     terminal_enable_kitty_keyboard();
     terminal_enable_bracketed_paste();
     terminal_hide_cursor();
-    terminal_clear_screen();
 
     tui->running = true;
     tui->dirty = true;
@@ -471,6 +471,7 @@ int tui_run(TUI *tui) {
     terminal_disable_kitty_keyboard();
     terminal_show_cursor();
     terminal_exit_raw_mode();
+    terminal_exit_alt_screen();
 
     return 0;
 }

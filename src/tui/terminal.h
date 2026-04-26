@@ -28,4 +28,7 @@ void terminal_disable_mouse(void);
 void terminal_sync_begin(void);
 void terminal_sync_end(void);
 
+void terminal_enter_alt_screen(void);
+void terminal_exit_alt_screen(void);
+
 #endif
