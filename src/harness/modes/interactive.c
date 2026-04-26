@@ -52,6 +52,10 @@ typedef struct {
     int total_tokens;
     int scroll_offset;
 
+    /* Thread safety */
+    pthread_mutex_t mutex;
+    volatile bool needs_rebuild;
+
     /* Tools */
     Tool tools[6];
     int tool_count;
@@ -71,28 +75,25 @@ static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx);
 
 /* ---- TUI Component Management ---- */
 
-static void rebuild_tui_components(InteractiveState *state) {
-    /* Remove all components from TUI (don't free them, we manage lifecycle) */
+static void do_rebuild_tui(InteractiveState *state) {
+    if (!state->tui) return;
+
     while (state->tui->component_count > 0) {
         tui_remove_component(state->tui, state->tui->components[0]);
     }
 
-    /* Add history widgets */
     for (int i = 0; i < state->history_count; i++) {
         tui_add_component(state->tui, state->history_widgets[i]);
     }
 
-    /* Add loader if streaming */
     if (state->phase == ISTATE_STREAMING && state->loader) {
         tui_add_component(state->tui, state->loader);
     }
 
-    /* Add status line */
     if (state->status_line) {
         tui_add_component(state->tui, state->status_line);
     }
 
-    /* Add input widget */
     if (state->input) {
         tui_add_component(state->tui, state->input);
     }
@@ -100,8 +101,30 @@ static void rebuild_tui_components(InteractiveState *state) {
     tui_invalidate(state->tui);
 }
 
+static void rebuild_tui_components(InteractiveState *state) {
+    pthread_mutex_lock(&state->mutex);
+    state->needs_rebuild = true;
+    if (state->tui) state->tui->dirty = true;
+    pthread_mutex_unlock(&state->mutex);
+}
+
+static void interactive_tick(TUI *tui, void *ctx) {
+    (void)tui;
+    InteractiveState *state = ctx;
+    if (state->needs_rebuild) {
+        pthread_mutex_lock(&state->mutex);
+        state->needs_rebuild = false;
+        do_rebuild_tui(state);
+        pthread_mutex_unlock(&state->mutex);
+    }
+}
+
 static void add_history_widget(InteractiveState *state, const char *role_prefix, const char *text) {
-    if (state->history_count >= MAX_HISTORY_WIDGETS) return;
+    pthread_mutex_lock(&state->mutex);
+    if (state->history_count >= MAX_HISTORY_WIDGETS) {
+        pthread_mutex_unlock(&state->mutex);
+        return;
+    }
 
     Str formatted = str_new(256);
     if (role_prefix) {
@@ -113,16 +136,21 @@ static void add_history_widget(InteractiveState *state, const char *role_prefix,
     Component *widget = widget_text_create(formatted.data);
     str_free(&formatted);
 
-    if (!widget) return;
+    if (!widget) {
+        pthread_mutex_unlock(&state->mutex);
+        return;
+    }
 
     state->history_widgets[state->history_count++] = widget;
-    rebuild_tui_components(state);
+    state->needs_rebuild = true;
+    if (state->tui) state->tui->dirty = true;
+    pthread_mutex_unlock(&state->mutex);
 }
 
 static void update_status_line(InteractiveState *state) {
     Str status = str_new(STATUS_BUF_SIZE);
 
-    const char *model_name = state->model ? state->model->name : "unknown";
+    const char *model_name = state->model ? state->model->name : "no model";
     str_appendf(&status, "\x1b[2m%s", model_name);
 
     if (state->total_tokens > 0) {
@@ -166,6 +194,7 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
         switch (event->stream_event->type) {
         case EVENT_TEXT_DELTA:
             if (event->stream_event->delta && state->current_assistant_widget) {
+                pthread_mutex_lock(&state->mutex);
                 str_append(&state->current_assistant_text, event->stream_event->delta);
 
                 Str display = str_new(state->current_assistant_text.len + 32);
@@ -173,7 +202,9 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
                 widget_text_set(state->current_assistant_widget, display.data);
                 str_free(&display);
 
-                rebuild_tui_components(state);
+                state->needs_rebuild = true;
+                if (state->tui) state->tui->dirty = true;
+                pthread_mutex_unlock(&state->mutex);
             }
             break;
 
@@ -383,10 +414,9 @@ static bool interactive_key_handler(TUI *tui, const ParsedKey *key, void *ctx) {
         return true;
     }
 
-    /* Let input widget handle all other keys */
-    if (state->input && state->input->handle_input) {
-        const char *raw = key->printable[0] ? key->printable : key->id;
-        state->input->handle_input(state->input, raw, (int)strlen(raw));
+    /* Let input widget handle all other keys via raw bytes */
+    if (state->input && state->input->handle_input && key->raw_len > 0) {
+        state->input->handle_input(state->input, key->raw, key->raw_len);
         tui_invalidate(tui);
     }
     return true;
@@ -443,6 +473,7 @@ InteractiveState *interactive_state_create(PiInstance *pi, const Model *model, c
     state->model = model;
     state->api_key = api_key ? strdup(api_key) : NULL;
     state->phase = ISTATE_IDLE;
+    pthread_mutex_init(&state->mutex, NULL);
 
     /* Create agent state */
     state->agent = agent_state_create();
@@ -505,6 +536,7 @@ void interactive_state_free(InteractiveState *state) {
     if (state->agent) agent_state_free(state->agent);
     if (state->session) session_free(state->session);
 
+    pthread_mutex_destroy(&state->mutex);
     free(state->current_tool_name);
     free(state->api_key);
     free(state);
@@ -578,6 +610,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     /* Set key handler - this overrides tui_run's default ctrl+c/escape handling */
     tui_set_key_handler(state->tui, interactive_key_handler, state);
+    tui_set_tick_handler(state->tui, interactive_tick, state);
 
     /* If no provider configured, show welcome message with setup instructions */
     if (!model || !state->api_key) {

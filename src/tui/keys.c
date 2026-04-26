@@ -17,6 +17,13 @@ static void set_printable(ParsedKey *key, const char *p) {
 ParsedKey key_parse(const char *raw, int len) {
     ParsedKey key = {0};
 
+    if (raw && len > 0) {
+        int copy = len < (int)sizeof(key.raw) - 1 ? len : (int)sizeof(key.raw) - 1;
+        memcpy(key.raw, raw, copy);
+        key.raw[copy] = '\0';
+        key.raw_len = copy;
+    }
+
     if (!raw || len <= 0) {
         set_id(&key, "unknown");
         return key;

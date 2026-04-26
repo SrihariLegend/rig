@@ -334,6 +334,12 @@ void tui_set_key_handler(TUI *tui, TuiKeyHandler handler, void *ctx) {
     tui->key_handler_ctx = ctx;
 }
 
+void tui_set_tick_handler(TUI *tui, TuiTickHandler handler, void *ctx) {
+    if (!tui) return;
+    tui->tick_handler = handler;
+    tui->tick_handler_ctx = ctx;
+}
+
 int tui_run(TUI *tui) {
     if (!tui) return -1;
 
@@ -422,6 +428,11 @@ int tui_run(TUI *tui) {
 
                 render_check: (void)0;
             }
+        }
+
+        /* Call tick handler (for deferred updates from other threads) */
+        if (tui->tick_handler) {
+            tui->tick_handler(tui, tui->tick_handler_ctx);
         }
 
         /* Render if dirty */

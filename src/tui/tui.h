@@ -36,6 +36,7 @@ typedef struct {
 #include "keys.h"
 // Return true to consume the key (don't dispatch to widgets)
 typedef bool (*TuiKeyHandler)(TUI *tui, const ParsedKey *key, void *ctx);
+typedef void (*TuiTickHandler)(TUI *tui, void *ctx);
 
 struct TUI {
     Component **components;
@@ -52,6 +53,8 @@ struct TUI {
     bool running;
     TuiKeyHandler key_handler;
     void *key_handler_ctx;
+    TuiTickHandler tick_handler;
+    void *tick_handler_ctx;
 };
 
 TUI *tui_create(void);
@@ -72,6 +75,7 @@ void tui_resize(TUI *tui);
 int tui_run(TUI *tui);
 void tui_quit(TUI *tui);
 void tui_set_key_handler(TUI *tui, TuiKeyHandler handler, void *ctx);
+void tui_set_tick_handler(TUI *tui, TuiTickHandler handler, void *ctx);
 
 void component_free(Component *comp);
 

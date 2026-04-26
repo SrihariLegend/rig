@@ -9,6 +9,8 @@ typedef struct {
     bool is_release;
     bool is_paste;
     char *paste_data;
+    char raw[256];
+    int raw_len;
 } ParsedKey;
 
 ParsedKey key_parse(const char *raw_input, int len);
