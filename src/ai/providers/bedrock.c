@@ -31,7 +31,21 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
         return;
     }
 
-    if (strcmp(type->valuestring, "content_block_delta") == 0) {
+    if (strcmp(type->valuestring, "message_start") == 0) {
+        if (!ctx->partial) {
+            ctx->partial = calloc(1, sizeof(Message));
+            ctx->partial->role = ROLE_ASSISTANT;
+        }
+        StreamEvent evt = { .type = EVENT_START, .partial = ctx->partial };
+        ctx->cb(&evt, ctx->userdata);
+    } else if (strcmp(type->valuestring, "content_block_start") == 0) {
+        if (!ctx->partial) {
+            ctx->partial = calloc(1, sizeof(Message));
+            ctx->partial->role = ROLE_ASSISTANT;
+        }
+        StreamEvent evt = { .type = EVENT_TEXT_START, .partial = ctx->partial };
+        ctx->cb(&evt, ctx->userdata);
+    } else if (strcmp(type->valuestring, "content_block_delta") == 0) {
         cJSON *delta = cJSON_GetObjectItem(json, "delta");
         if (delta) {
             cJSON *dt = cJSON_GetObjectItem(delta, "type");
@@ -43,6 +57,11 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
                 }
             }
         }
+    } else if (strcmp(type->valuestring, "content_block_stop") == 0) {
+        StreamEvent evt = { .type = EVENT_TEXT_END, .partial = ctx->partial };
+        ctx->cb(&evt, ctx->userdata);
+    } else if (strcmp(type->valuestring, "message_delta") == 0) {
+        /* usage info etc — ignore for now */
     } else if (strcmp(type->valuestring, "message_stop") == 0) {
         if (!ctx->partial) {
             ctx->partial = calloc(1, sizeof(Message));
@@ -50,6 +69,7 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
         }
         StreamEvent done = { .type = EVENT_DONE, .message = ctx->partial };
         ctx->cb(&done, ctx->userdata);
+        ctx->partial = NULL;
     }
 
     cJSON_Delete(json);

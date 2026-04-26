@@ -48,8 +48,23 @@ static char **input_render(Component *self, int width, int *line_count) {
 }
 
 static void input_handle(Component *self, const char *data, int len) {
+    if (!self || !self->data || !data || len <= 0) return;
     InputData *d = (InputData *)self->data;
+    if (!d->buffer) return;
+
+    {
+        FILE *dbg = fopen("/tmp/pi_debug.log", "a");
+        if (dbg) { fprintf(dbg, "input_handle: data[0]=0x%02x len=%d buf_len=%d buf_cap=%d cursor=%d\n",
+            (unsigned char)data[0], len, d->buf_len, d->buf_capacity, d->cursor); fflush(dbg); fclose(dbg); }
+    }
+
     ParsedKey key = key_parse(data, len);
+
+    {
+        FILE *dbg = fopen("/tmp/pi_debug.log", "a");
+        if (dbg) { fprintf(dbg, "input_handle: key_parse done, printable='%s' id='%s'\n",
+            key.printable, key.id); fflush(dbg); fclose(dbg); }
+    }
 
     if (key_matches(&key, "backspace")) {
         if (d->cursor > 0) {

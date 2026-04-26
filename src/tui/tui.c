@@ -429,6 +429,11 @@ int tui_run(TUI *tui) {
             }
         }
 
+        {
+            FILE *dbg = fopen("/tmp/pi_debug.log", "a");
+            if (dbg) { fprintf(dbg, "LOOP: tick_handler=%p dirty=%d\n", (void*)tui->tick_handler, tui->dirty); fflush(dbg); fclose(dbg); }
+        }
+
         /* Call tick handler (for deferred updates from other threads) */
         if (tui->tick_handler) {
             tui->tick_handler(tui, tui->tick_handler_ctx);
@@ -436,6 +441,10 @@ int tui_run(TUI *tui) {
 
         /* Render if dirty */
         if (tui->dirty) {
+            {
+                FILE *dbg = fopen("/tmp/pi_debug.log", "a");
+                if (dbg) { fprintf(dbg, "RENDERING: comp_count=%d\n", tui->component_count); fflush(dbg); fclose(dbg); }
+            }
             tui_render(tui);
         }
     }
