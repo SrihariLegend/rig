@@ -4,7 +4,7 @@
 #include <string.h>
 
 const char *pi_version(void) {
-    return PI_VERSION;
+    return RIG_VERSION;
 }
 
 PiInstance *pi_create(void) {
@@ -38,7 +38,7 @@ int pi_init(PiInstance *pi) {
 
     const char *global_dir = config_agent_dir();
     if (global_dir) {
-        extension_discover_and_load(pi->api, ".pi", global_dir);
+        extension_discover_and_load(pi->api, ".rig", global_dir);
     }
 
     hook_chain_fire(pi->api->hooks, "init", NULL, NULL);

@@ -15,7 +15,7 @@ static char sessions_dir[PATH_MAX] = {0};
 
 const char *config_agent_dir(void) {
     if (!agent_dir[0]) {
-        char *home = fs_expand_home("~/.pi/agent");
+        char *home = fs_expand_home("~/.rig/agent");
         if (home) {
             strncpy(agent_dir, home, PATH_MAX - 1);
             free(home);
@@ -35,7 +35,7 @@ const char *config_settings_project_path(void) {
     if (!project_settings[0]) {
         char cwd[PATH_MAX];
         if (getcwd(cwd, sizeof(cwd))) {
-            snprintf(project_settings, PATH_MAX, "%s/.pi/settings.json", cwd);
+            snprintf(project_settings, PATH_MAX, "%s/.rig/settings.json", cwd);
         }
     }
     return project_settings;

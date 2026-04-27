@@ -45,16 +45,16 @@ char *package_install_dir(PackageSourceType type, bool local) {
         // Project-local: .pi/npm/ or .pi/git/
         char *root = config_find_project_root();
         if (type == PKG_NPM) {
-            snprintf(buf, PATH_MAX, "%s/.pi/npm", root);
+            snprintf(buf, PATH_MAX, "%s/.rig/npm", root);
         } else if (type == PKG_GIT) {
-            snprintf(buf, PATH_MAX, "%s/.pi/git", root);
+            snprintf(buf, PATH_MAX, "%s/.rig/git", root);
         } else {
             free(root);
             return NULL;
         }
         free(root);
     } else {
-        // Global: ~/.pi/agent/npm/ or ~/.pi/agent/git/
+        // Global: ~/.rig/agent/npm/ or ~/.rig/agent/git/
         const char *agent_dir = config_agent_dir();
         if (type == PKG_NPM) {
             snprintf(buf, PATH_MAX, "%s/npm", agent_dir);

@@ -6,7 +6,7 @@
 typedef struct {
     Model *builtin_models;
     int builtin_count;
-    Model *custom_models;    /* from ~/.pi/agent/models.json */
+    Model *custom_models;    /* from ~/.rig/agent/models.json */
     int custom_count;
 } ModelRegistry;
 

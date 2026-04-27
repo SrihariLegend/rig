@@ -28,10 +28,10 @@
 #include "util/fs.h"
 #include "util/process.h"
 
-#define PI_VERSION "0.1.0"
-#define PI_VERSION_MAJOR 0
-#define PI_VERSION_MINOR 1
-#define PI_VERSION_PATCH 0
+#define RIG_VERSION "0.1.0"
+#define RIG_VERSION_MAJOR 0
+#define RIG_VERSION_MINOR 1
+#define RIG_VERSION_PATCH 0
 
 typedef struct PiInstance {
     PiExtensionAPI *api;

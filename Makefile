@@ -67,13 +67,13 @@ TEST_BIN = $(TEST_SRC:.c=)
 
 .PHONY: all clean test
 
-all: libpi.a pi
+all: librig.a rig
 
-libpi.a: $(ALL_OBJ)
+librig.a: $(ALL_OBJ)
 	ar rcs $@ $^
 
-pi: src/main.o libpi.a
-	$(CC) $(CFLAGS) -o $@ $< -L. -lpi $(LDFLAGS)
+rig: src/main.o librig.a
+	$(CC) $(CFLAGS) -o $@ $< -L. -lrig $(LDFLAGS)
 
 # Suppress warnings for vendored deps
 deps/lua5.4/%.o: deps/lua5.4/%.c
@@ -92,11 +92,11 @@ DEPFLAGS = -MMD -MP
 
 -include $(ALL_OBJ:.o=.d) src/main.d
 
-test/%: test/%.c libpi.a
-	$(CC) $(CFLAGS) -I test -o $@ $< -L. -lpi $(LDFLAGS)
+test/%: test/%.c librig.a
+	$(CC) $(CFLAGS) -I test -o $@ $< -L. -lrig $(LDFLAGS)
 
 test: $(TEST_BIN)
 	@for t in $(TEST_BIN); do echo "Running $$t..."; ./$$t || exit 1; done
 
 clean:
-	rm -f $(ALL_OBJ) src/main.o libpi.a pi $(TEST_BIN)
+	rm -f $(ALL_OBJ) src/main.o librig.a rig $(TEST_BIN)

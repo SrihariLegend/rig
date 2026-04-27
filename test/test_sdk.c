@@ -11,9 +11,9 @@ TEST(pi_version_basic) {
 }
 
 TEST(pi_version_macros) {
-    ASSERT_EQ(PI_VERSION_MAJOR, 0);
-    ASSERT_EQ(PI_VERSION_MINOR, 1);
-    ASSERT_EQ(PI_VERSION_PATCH, 0);
+    ASSERT_EQ(RIG_VERSION_MAJOR, 0);
+    ASSERT_EQ(RIG_VERSION_MINOR, 1);
+    ASSERT_EQ(RIG_VERSION_PATCH, 0);
 }
 
 TEST(pi_create_basic) {

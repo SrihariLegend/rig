@@ -97,7 +97,7 @@ static int cmd_auth(int argc, char **argv) {
                 fprintf(stderr, "Auth: via environment variables\n");
             } else {
                 fprintf(stderr, "No credentials configured.\n");
-                fprintf(stderr, "Run: pi auth\n");
+                fprintf(stderr, "Run: rig auth\n");
             }
         }
         return 0;
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
     if (!print_mode) {
         PiInstance *pi = pi_create();
         if (!pi) {
-            fprintf(stderr, "Error: Failed to create Pi instance\n");
+            fprintf(stderr, "Error: Failed to create Rig instance\n");
             return 1;
         }
         int rc = interactive_mode_start(pi, session_id, model_pattern, provider);
@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
     }
 
     if (!prompt || !prompt[0]) {
-        fprintf(stderr, "Error: No prompt provided. Use: pi -p \"your prompt\"\n");
+        fprintf(stderr, "Error: No prompt provided. Use: rig -p \"your prompt\"\n");
         return 1;
     }
 
@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
     if (agent_dir) {
         fs_mkdir_p(agent_dir);
         char log_path[512];
-        snprintf(log_path, sizeof(log_path), "%s/pi.log", agent_dir);
+        snprintf(log_path, sizeof(log_path), "%s/rig.log", agent_dir);
         pi_log_open(log_path);
     }
 

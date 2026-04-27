@@ -8,7 +8,7 @@ typedef struct {
     char **allowed_paths;     /* additional allowed paths (e.g., /tmp) */
     int allowed_count;
     int allowed_capacity;
-    bool allow_home_config;   /* allow ~/.pi/ access */
+    bool allow_home_config;   /* allow ~/.rig/ access */
 } PathSandbox;
 
 PathSandbox *sandbox_create(const char *project_root);

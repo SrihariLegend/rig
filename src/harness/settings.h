@@ -6,7 +6,7 @@
 
 /* Settings layers, ordered by precedence (lowest to highest) */
 typedef enum {
-    SETTINGS_GLOBAL,    /* ~/.pi/agent/settings.json */
+    SETTINGS_GLOBAL,    /* ~/.rig/agent/settings.json */
     SETTINGS_PROJECT,   /* .pi/settings.json         */
     SETTINGS_CLI,       /* command-line overrides     */
 } SettingsLayer;

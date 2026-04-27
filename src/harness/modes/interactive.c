@@ -926,7 +926,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     if (agent_dir) {
         fs_mkdir_p(agent_dir);
         char log_path[512];
-        snprintf(log_path, sizeof(log_path), "%s/pi.log", agent_dir);
+        snprintf(log_path, sizeof(log_path), "%s/rig.log", agent_dir);
         pi_log_open(log_path);
         pi_log_set_level(LOG_DEBUG);
     }

@@ -8,7 +8,7 @@ char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd) {
     Str s = str_new(8192);
 
     str_append(&s,
-        "You are Pi, an AI coding assistant. You help users with software engineering tasks "
+        "You are Rig, an AI coding assistant. You help users with software engineering tasks "
         "including writing code, debugging, explaining code, and managing files.\n\n");
 
     str_append(&s, "# Environment\n");
