@@ -35,6 +35,14 @@ void system_prompt_add_fragment(const char *key, const char *text) {
     ext_prompt_count++;
 }
 
+void system_prompt_clear_fragments(void) {
+    for (int i = 0; i < ext_prompt_count; i++) {
+        free((void *)ext_prompt_keys[i]);
+        free((void *)ext_prompt_vals[i]);
+    }
+    ext_prompt_count = 0;
+}
+
 void system_prompt_remove_fragment(const char *key) {
     for (int i = 0; i < ext_prompt_count; i++) {
         if (strcmp(ext_prompt_keys[i], key) == 0) {

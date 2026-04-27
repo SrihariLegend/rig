@@ -67,7 +67,7 @@ bool permissions_check(const PermissionSet *ps, const char *tool, const char *ar
 
         /* Pattern match: NULL = any, otherwise glob */
         if (!r->pattern) return true;
-        if (arg_summary && fnmatch(r->pattern, arg_summary, 0) == 0) return true;
+        if (arg_summary && fnmatch(r->pattern, arg_summary, FNM_NOESCAPE) == 0) return true;
     }
 
     return false;
@@ -77,16 +77,14 @@ char *permissions_describe_call(const char *tool, const char *arg_summary) {
     Str desc = str_new(256);
     str_appendf(&desc, "%s", tool);
     if (arg_summary && arg_summary[0]) {
-        /* Truncate long args */
         int len = (int)strlen(arg_summary);
         if (len > 120) {
-            char truncated[128];
-            memcpy(truncated, arg_summary, 117);
-            truncated[117] = '.';
-            truncated[118] = '.';
-            truncated[119] = '.';
-            truncated[120] = '\0';
-            str_appendf(&desc, ": %s", truncated);
+            /* Walk back to UTF-8 char boundary */
+            int cut = 117;
+            while (cut > 0 && ((unsigned char)arg_summary[cut] & 0xC0) == 0x80) cut--;
+            str_append_len(&desc, ": ", 2);
+            str_append_len(&desc, arg_summary, cut);
+            str_append(&desc, "...");
         } else {
             str_appendf(&desc, ": %s", arg_summary);
         }

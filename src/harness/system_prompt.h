@@ -7,5 +7,6 @@ char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd);
 
 void system_prompt_add_fragment(const char *key, const char *text);
 void system_prompt_remove_fragment(const char *key);
+void system_prompt_clear_fragments(void);
 
 #endif

@@ -36,7 +36,24 @@ struct LuaExtState {
     bool sandboxed;
     int next_hook_id;
     pthread_mutex_t lua_mutex;
+
+    /* Track allocations for cleanup */
+    void **allocs;
+    int alloc_count;
+    int alloc_cap;
 };
+
+static void track_alloc(LuaExtState *st, void *ptr) {
+    if (!st || !ptr) return;
+    if (st->alloc_count >= st->alloc_cap) {
+        int new_cap = st->alloc_cap == 0 ? 16 : st->alloc_cap * 2;
+        void **na = realloc(st->allocs, (size_t)new_cap * sizeof(void *));
+        if (!na) return;
+        st->allocs = na;
+        st->alloc_cap = new_cap;
+    }
+    st->allocs[st->alloc_count++] = ptr;
+}
 
 /* ============================================================
  *  Memory allocator
@@ -302,6 +319,13 @@ static int lua_rig_completion(lua_State *L) {
         .reasoning = THINKING_OFF,
     };
 
+    if (actual_count == 0) {
+        free(flat);
+        free(messages);
+        str_free(&response);
+        return luaL_error(L, "completion: no valid messages");
+    }
+
     ai_stream_simple(model, flat, actual_count,
                      system_prompt, NULL, 0,
                      &sopts, completion_stream_cb, &bridge);
@@ -432,6 +456,7 @@ static int lua_rig_hook(lua_State *L) {
 
     char name[64];
     snprintf(name, sizeof(name), "lua_hook_%d", ++st->next_hook_id);
+    track_alloc(st, hctx);
     hook_chain_add(api->hooks, event, priority, lua_hook_bridge, hctx, name);
 
     lua_pushstring(L, name);
@@ -642,6 +667,7 @@ static int lua_rig_set(lua_State *L) {
         cctx->L = L;
         cctx->ref = ref;
         cctx->lua_mutex = &st->lua_mutex;
+        track_alloc(st, cctx);
 
         extension_api_register_command(api, key, lua_cmd_bridge, cctx);
         return 0;
@@ -796,6 +822,8 @@ LuaExtState *lua_ext_create(PiExtensionAPI *api) {
 
 void lua_ext_free(LuaExtState *state) {
     if (!state) return;
+    for (int i = 0; i < state->alloc_count; i++) free(state->allocs[i]);
+    free(state->allocs);
     if (state->L) lua_close(state->L);
     pthread_mutex_destroy(&state->lua_mutex);
     free(state);

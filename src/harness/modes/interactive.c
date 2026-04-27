@@ -71,6 +71,7 @@ typedef struct {
     char *api_key;
     TurnLog *turnlog;
     PermissionSet *perms;
+    volatile bool permission_pending;  /* pause main stdin poll */
 
     /* Input history */
     char **history;
@@ -217,7 +218,7 @@ static void history_down(InteractiveState *state) {
 /* ---- Lua tool execution bridge ---- */
 
 /* Thread-local: set by before_tool hook so execute() knows which tool it is */
-static __thread const char *lua_tool_current_name = NULL;
+static _Thread_local const char *lua_tool_current_name = NULL;
 
 static int lua_tool_execute(const char *call_id, cJSON *params, void *signal,
                             void (*on_update)(void *ctx, cJSON *partial), void *ctx,
@@ -668,7 +669,9 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
 
             free(desc);
 
-            /* Poll for user response */
+            /* Claim stdin — main thread will skip stdin polling */
+            state->permission_pending = true;
+
             struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
             char response = 0;
             while (!response) {
@@ -751,6 +754,7 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
                 }
             }
 
+            state->permission_pending = false;
             free(summary);
 
             if (response == 'n') {
@@ -2438,7 +2442,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
         int ready = poll(&pfd, 1, 16);
 
-        if (ready > 0 && (pfd.revents & POLLIN)) {
+        if (ready > 0 && (pfd.revents & POLLIN) && !state->permission_pending) {
             char buf[256];
             ssize_t n = read(STDIN_FILENO, buf, sizeof(buf) - 1);
             if (n > 0) {
