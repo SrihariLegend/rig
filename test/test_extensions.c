@@ -315,7 +315,7 @@ TEST(lua_ext_set_var_json) {
 TEST(lua_ext_hook_from_lua) {
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    lua_ext_eval(lua, "fired = false; pi:on('test.event', function(ev, data) fired = true; return true end)", NULL);
+    lua_ext_eval(lua, "fired = false; rig.hook('test.event', function(ev, data) fired = true; return true end)", NULL);
     hook_chain_fire(api->hooks, "test.event", NULL, NULL);
     char *result = NULL;
     lua_ext_eval(lua, "return tostring(fired)", &result);
@@ -328,7 +328,7 @@ TEST(lua_ext_hook_from_lua) {
 TEST(lua_ext_register_command) {
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    lua_ext_eval(lua, "pi:register_command('hello', function(args) return 0 end)", NULL);
+    lua_ext_eval(lua, "rig.set('commands', 'hello', function(args) end)", NULL);
     ASSERT_EQ(api->command_count, 1);
     ASSERT_STR_EQ(api->commands[0].name, "hello");
     lua_ext_free(lua);
@@ -338,7 +338,7 @@ TEST(lua_ext_register_command) {
 TEST(lua_ext_register_tool) {
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    lua_ext_eval(lua, "pi:register_tool('mytool', 'desc', '{}', function(params) return 'ok' end)", NULL);
+    lua_ext_eval(lua, "rig.set('tools', 'mytool', {description='desc', params={}, run=function(p) return 'ok' end})", NULL);
     ASSERT_EQ(api->tool_count, 1);
     Tool *t = extension_api_get_tool(api, "mytool");
     ASSERT_NOT_NULL(t);
@@ -348,27 +348,30 @@ TEST(lua_ext_register_tool) {
 }
 
 TEST(lua_ext_bus_pub_sub) {
+    /* Event bus pub/sub removed from new API — hooks replace it */
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    lua_ext_eval(lua, "received = nil; pi:bus_subscribe('test.topic', function(topic, data) received = topic end)", NULL);
-    event_bus_publish(api->bus, "test.topic", "c-test", NULL);
+    /* Test rig.hook instead */
+    lua_ext_eval(lua, "received = false; rig.hook('bus.test', function(ev, data) received = true; return true end)", NULL);
+    hook_chain_fire(api->hooks, "bus.test", NULL, NULL);
     char *result = NULL;
-    lua_ext_eval(lua, "return received", &result);
+    lua_ext_eval(lua, "return tostring(received)", &result);
     ASSERT_NOT_NULL(result);
-    ASSERT_STR_EQ(result, "test.topic");
+    ASSERT_STR_EQ(result, "true");
     free(result);
     lua_ext_free(lua);
     extension_api_free(api);
 }
 
 TEST(lua_ext_bus_publish_from_lua) {
+    /* Replaced: test rig.exec instead */
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    BusTestCtx ctx = {0};
-    event_bus_subscribe(api->bus, "from.lua", bus_test_handler, &ctx);
-    lua_ext_eval(lua, "pi:bus_publish('from.lua', {val=1})", NULL);
-    ASSERT_EQ(ctx.count, 1);
-    ASSERT_STR_EQ(ctx.last_topic, "from.lua");
+    char *result = NULL;
+    lua_ext_eval(lua, "local r = rig.exec('echo hello'); return r.stdout", &result);
+    ASSERT_NOT_NULL(result);
+    ASSERT_TRUE(strstr(result, "hello") != NULL);
+    free(result);
     lua_ext_free(lua);
     extension_api_free(api);
 }
@@ -376,12 +379,11 @@ TEST(lua_ext_bus_publish_from_lua) {
 TEST(lua_ext_state_get_set) {
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    lua_ext_eval(lua, "pi:state_set('key1', 'value1')", NULL);
+    lua_ext_eval(lua, "rig.set('state', 'key1', 'value1')", NULL);
     char *result = NULL;
-    lua_ext_eval(lua, "return pi:state_get('key1')", &result);
+    lua_ext_eval(lua, "return rig.get('state', 'key1')", &result);
     ASSERT_STR_EQ(result, "value1");
     free(result);
-    /* Verify C-side */
     cJSON *val = cJSON_GetObjectItem(api->state, "key1");
     ASSERT_NOT_NULL(val);
     ASSERT_STR_EQ(val->valuestring, "value1");
@@ -394,10 +396,10 @@ TEST(lua_ext_settings_get_set) {
     cJSON_AddStringToObject(api->settings, "theme", "dark");
     LuaExtState *lua = lua_ext_create(api);
     char *result = NULL;
-    lua_ext_eval(lua, "return pi:get_setting('theme')", &result);
+    lua_ext_eval(lua, "return rig.get('settings', 'theme')", &result);
     ASSERT_STR_EQ(result, "dark");
     free(result);
-    lua_ext_eval(lua, "pi:set_setting('theme', 'light')", NULL);
+    lua_ext_eval(lua, "rig.set('settings', 'theme', 'light')", NULL);
     cJSON *val = cJSON_GetObjectItem(api->settings, "theme");
     ASSERT_STR_EQ(val->valuestring, "light");
     lua_ext_free(lua);
@@ -407,7 +409,7 @@ TEST(lua_ext_settings_get_set) {
 TEST(lua_ext_load_file) {
     PiExtensionAPI *api = extension_api_create();
     LuaExtState *lua = lua_ext_create(api);
-    const char *code = "test_var = 'loaded'\nfunction init(pi)\n  pi:state_set('init_called', 'yes')\nend\n";
+    const char *code = "test_var = 'loaded'\nfunction init(rig)\n  rig.set('state', 'init_called', 'yes')\nend\n";
     const char *path = "/tmp/pi_test_ext.lua";
     fs_write_file(path, code, strlen(code));
     ASSERT_EQ(lua_ext_load_file(lua, path), 0);
@@ -658,6 +660,106 @@ TEST(adv_lua_string_rep_memory) {
     extension_api_free(api);
 }
 
+/* ========== 8 Primitives ========== */
+
+TEST(rig_exec_basic) {
+    PiExtensionAPI *api = extension_api_create();
+    LuaExtState *lua = lua_ext_create(api);
+    char *result = NULL;
+    int rc = lua_ext_eval(lua, "local r = rig.exec('echo hello world'); return r.stdout", &result);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(result);
+    ASSERT_TRUE(strstr(result, "hello world") != NULL);
+    free(result);
+    lua_ext_free(lua);
+    extension_api_free(api);
+}
+
+TEST(rig_get_tools) {
+    PiExtensionAPI *api = extension_api_create();
+    Tool *t = calloc(1, sizeof(Tool));
+    t->name = strdup("test_tool");
+    t->description = strdup("a test tool");
+    extension_api_register_tool(api, t);
+
+    LuaExtState *lua = lua_ext_create(api);
+    char *result = NULL;
+    lua_ext_eval(lua, "local tools = rig.get('tools'); return tools[1]", &result);
+    ASSERT_NOT_NULL(result);
+    ASSERT_STR_EQ(result, "test_tool");
+    free(result);
+    lua_ext_free(lua);
+    extension_api_free(api);
+}
+
+TEST(rig_set_tools) {
+    PiExtensionAPI *api = extension_api_create();
+    LuaExtState *lua = lua_ext_create(api);
+    lua_ext_eval(lua, "rig.set('tools', 'newtool', {description='new', params={}, run=function(p) return 'hi' end})", NULL);
+    ASSERT_EQ(api->tool_count, 1);
+    Tool *t = extension_api_get_tool(api, "newtool");
+    ASSERT_NOT_NULL(t);
+    ASSERT_STR_EQ(t->description, "new");
+
+    /* Remove it */
+    lua_ext_eval(lua, "rig.set('tools', 'newtool', nil)", NULL);
+    ASSERT_EQ(api->tool_count, 0);
+    lua_ext_free(lua);
+    extension_api_free(api);
+}
+
+TEST(rig_hook_unhook) {
+    PiExtensionAPI *api = extension_api_create();
+    LuaExtState *lua = lua_ext_create(api);
+    lua_ext_eval(lua, "count = 0; handle = rig.hook('myevent', function(ev, data) count = count + 1; return true end)", NULL);
+    hook_chain_fire(api->hooks, "myevent", NULL, NULL);
+    char *result = NULL;
+    lua_ext_eval(lua, "return tostring(count)", &result);
+    ASSERT_STR_EQ(result, "1");
+    free(result);
+
+    /* Unhook */
+    lua_ext_eval(lua, "rig.unhook(handle)", NULL);
+    hook_chain_fire(api->hooks, "myevent", NULL, NULL);
+    result = NULL;
+    lua_ext_eval(lua, "return tostring(count)", &result);
+    ASSERT_STR_EQ(result, "1"); /* still 1, not 2 */
+    free(result);
+    lua_ext_free(lua);
+    extension_api_free(api);
+}
+
+TEST(rig_call_lua_tool) {
+    PiExtensionAPI *api = extension_api_create();
+    LuaExtState *lua = lua_ext_create(api);
+    lua_ext_eval(lua, "rig.set('tools', 'echo_tool', {description='echo', params={}, run=function(p) return 'echoed: ' .. (p.msg or 'nil') end})", NULL);
+
+    cJSON *params = cJSON_CreateObject();
+    cJSON_AddStringToObject(params, "msg", "test123");
+    char *result = NULL;
+    int rc = lua_ext_call_tool(lua, "echo_tool", params, &result);
+    ASSERT_EQ(rc, 0);
+    ASSERT_NOT_NULL(result);
+    ASSERT_TRUE(strstr(result, "test123") != NULL);
+    free(result);
+    cJSON_Delete(params);
+    lua_ext_free(lua);
+    extension_api_free(api);
+}
+
+TEST(rig_get_settings) {
+    PiExtensionAPI *api = extension_api_create();
+    cJSON_AddStringToObject(api->settings, "color", "blue");
+    LuaExtState *lua = lua_ext_create(api);
+    char *result = NULL;
+    lua_ext_eval(lua, "return rig.get('settings', 'color')", &result);
+    ASSERT_NOT_NULL(result);
+    ASSERT_STR_EQ(result, "blue");
+    free(result);
+    lua_ext_free(lua);
+    extension_api_free(api);
+}
+
 int main(void) {
     TEST_SUITE("Hooks");
     RUN_TEST(hook_chain_create_free);
@@ -707,6 +809,14 @@ int main(void) {
     RUN_TEST(lua_ext_load_file);
     RUN_TEST(lua_ext_sandbox_no_os);
     RUN_TEST(lua_ext_free_null);
+
+    TEST_SUITE("8 Primitives");
+    RUN_TEST(rig_exec_basic);
+    RUN_TEST(rig_get_tools);
+    RUN_TEST(rig_set_tools);
+    RUN_TEST(rig_hook_unhook);
+    RUN_TEST(rig_call_lua_tool);
+    RUN_TEST(rig_get_settings);
 
     TEST_SUITE("ADVERSARIAL: Lua Sandbox Escapes");
     RUN_TEST(adv_lua_os_execute_blocked);
