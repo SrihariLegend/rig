@@ -2,6 +2,7 @@
 #include "cjson/cJSON.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <stdint.h>
 
 static const unsigned char b64_table[256] = {
@@ -98,6 +99,17 @@ static void process_frame(EventStreamParser *p, const unsigned char *frame, size
             p->on_event(decoded, p->ctx);
         }
         free(decoded);
+    } else {
+        /* Error frame or unexpected format — pass raw payload to handler */
+        char *raw = cJSON_PrintUnformatted(json);
+        if (raw) {
+            char err_json[1024];
+            snprintf(err_json, sizeof(err_json),
+                "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"%.*s\"}}",
+                800, raw);
+            p->on_event(err_json, p->ctx);
+            free(raw);
+        }
     }
 
     cJSON_Delete(json);

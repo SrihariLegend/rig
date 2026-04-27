@@ -166,6 +166,11 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
             if (event->stream_event->message) {
                 state->total_tokens += event->stream_event->message->usage.total_tokens;
             }
+            if (!event->stream_event->message) {
+                pthread_mutex_lock(&state->mutex);
+                linestore_add_error(state->store, "no response from API");
+                pthread_mutex_unlock(&state->mutex);
+            }
             pthread_mutex_lock(&state->mutex);
             lantern_renderer_set_breathing(state->renderer, false, NULL);
             state->needs_render = true;

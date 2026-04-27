@@ -185,53 +185,40 @@ static void render_line_content(const LanternRenderer *r, const StoreLine *line,
     }
 
     case LINE_CODE_LANG: {
-        char bg_buf[32];
-        if (l->tier == COLOR_TRUECOLOR) {
-            snprintf(bg_buf, sizeof(bg_buf), "\x1b[48;2;%d;%d;%dm", 30, 34, 42);
-        } else if (l->tier == COLOR_256) {
-            snprintf(bg_buf, sizeof(bg_buf), "\x1b[48;5;236m");
-        } else {
-            bg_buf[0] = '\0';
-        }
-        RGB dim = rgb_lerp(*base_color, (RGB){40, 40, 40}, 0.6f);
-        terminal_write_str(bg_buf);
+        RGB dim = rgb_lerp(*base_color, (RGB){40, 40, 40}, 0.5f);
+        RGB accent = lantern_accent_at(l, distance);
+        RGB dim_accent = { (uint8_t)(accent.r * 0.3f), (uint8_t)(accent.g * 0.3f), (uint8_t)(accent.b * 0.3f) };
+        lantern_emit_fg(l, &dim_accent, fg_buf, sizeof(fg_buf));
+        terminal_write_str(fg_buf);
+        terminal_write_str("\xe2\x94\x8c");
+        terminal_write_str(reset_buf);
         lantern_emit_fg(l, &dim, fg_buf, sizeof(fg_buf));
         terminal_write_str(fg_buf);
-        terminal_write_str("  ");
-        terminal_write_str(line->raw_text);
-
-        int text_vis = unicode_display_width(line->raw_text) + 2;
-        int pad = avail_width - text_vis;
-        if (pad > 0) emit_padding(pad);
-
+        terminal_write_str(" ");
+        if (line->raw_text) terminal_write_str(line->raw_text);
         terminal_write_str(reset_buf);
         break;
     }
 
     case LINE_CODE: {
         RGB code_color = *base_color;
-        code_color.r = (uint8_t)(code_color.r * 0.8f);
-        code_color.g = (uint8_t)(code_color.g * 0.8f);
-        code_color.b = (uint8_t)(code_color.b * 0.8f);
+        code_color.r = (uint8_t)(code_color.r * 0.85f);
+        code_color.g = (uint8_t)(code_color.g * 0.85f);
+        code_color.b = (uint8_t)(code_color.b * 0.85f);
 
-        char bg_buf[32];
-        if (l->tier == COLOR_TRUECOLOR) {
-            snprintf(bg_buf, sizeof(bg_buf), "\x1b[48;2;%d;%d;%dm", 30, 34, 42);
-        } else if (l->tier == COLOR_256) {
-            snprintf(bg_buf, sizeof(bg_buf), "\x1b[48;5;236m");
-        } else {
-            bg_buf[0] = '\0';
-        }
-        terminal_write_str(bg_buf);
+        /* Accent left bar */
+        RGB accent = lantern_accent_at(l, distance);
+        RGB dim_accent = { (uint8_t)(accent.r * 0.3f), (uint8_t)(accent.g * 0.3f), (uint8_t)(accent.b * 0.3f) };
+        lantern_emit_fg(l, &dim_accent, fg_buf, sizeof(fg_buf));
+        terminal_write_str(fg_buf);
+        terminal_write_str("\xe2\x94\x82");
+        terminal_write_str(reset_buf);
+
+        /* Code text */
         lantern_emit_fg(l, &code_color, fg_buf, sizeof(fg_buf));
         terminal_write_str(fg_buf);
-        terminal_write_str("  ");
-        terminal_write_str(line->raw_text);
-
-        int text_vis = unicode_display_width(line->raw_text) + 2;
-        int pad = avail_width - text_vis;
-        if (pad > 0) emit_padding(pad);
-
+        terminal_write_str(" ");
+        if (line->raw_text) terminal_write_str(line->raw_text);
         terminal_write_str(reset_buf);
         break;
     }

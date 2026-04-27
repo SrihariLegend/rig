@@ -32,6 +32,25 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
         return;
     }
 
+    if (strcmp(type->valuestring, "error") == 0) {
+        cJSON *err = cJSON_GetObjectItem(json, "error");
+        const char *msg = "API error";
+        if (err) {
+            cJSON *m = cJSON_GetObjectItem(err, "message");
+            if (m && cJSON_IsString(m)) msg = m->valuestring;
+        }
+        LOG_ERROR("Bedrock API error: %s", msg);
+        if (!ctx->partial) {
+            ctx->partial = calloc(1, sizeof(Message));
+            ctx->partial->role = ROLE_ASSISTANT;
+        }
+        StreamEvent evt = { .type = EVENT_ERROR, .message = ctx->partial, .error_message = (char *)msg };
+        ctx->cb(&evt, ctx->userdata);
+        ctx->partial = NULL;
+        cJSON_Delete(json);
+        return;
+    }
+
     if (strcmp(type->valuestring, "message_start") == 0) {
         if (!ctx->partial) {
             ctx->partial = calloc(1, sizeof(Message));

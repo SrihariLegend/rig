@@ -490,6 +490,17 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
             }
 
             Message *assistant = bridge.final_message;
+            if (!assistant) {
+                LOG_WARN("Agent: no message from API, emitting error");
+                Message *err_msg = calloc(1, sizeof(Message));
+                err_msg->role = ROLE_ASSISTANT;
+                message_add_content(err_msg, content_text("(no response from API — may be a temporary error, try again)", NULL));
+                AgentEvent ev = { .type = AGENT_EVENT_MESSAGE_START, .message = err_msg };
+                cb(&ev, userdata);
+                ev.type = AGENT_EVENT_MESSAGE_END;
+                cb(&ev, userdata);
+                assistant = err_msg;
+            }
             if (assistant) {
                 LOG_INFO("Agent: got assistant message, content_count=%d", assistant->content_count);
                 for (int ci = 0; ci < assistant->content_count; ci++) {
