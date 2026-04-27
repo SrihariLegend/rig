@@ -1,5 +1,9 @@
 # Rig
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="Rig" width="700">
+</p>
+
 A coding agent that runs anywhere, connects to everything, and gets out of your way.
 
 **~23K lines of C. 566KB binary. Zero runtime dependencies. Every major LLM provider. Extensible via Lua.**
