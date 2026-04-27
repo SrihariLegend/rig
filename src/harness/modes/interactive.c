@@ -1662,6 +1662,37 @@ static bool handle_slash_command(InteractiveState *state) {
         return true;
     }
 
+    /* Check Lua-registered commands */
+    if (state->pi && state->pi->api) {
+        PiExtensionAPI *eapi = state->pi->api;
+        for (int i = 0; i < eapi->command_count; i++) {
+            if (eapi->commands[i].name && strcmp(eapi->commands[i].name, cmd) == 0) {
+                /* Build args array */
+                const char *args_arr[16] = {0};
+                int argc = 0;
+                if (arg) {
+                    /* Split arg on spaces — simple tokenizer */
+                    char *arg_copy = strdup(arg);
+                    char *tok = strtok(arg_copy, " ");
+                    while (tok && argc < 16) {
+                        args_arr[argc++] = tok;
+                        tok = strtok(NULL, " ");
+                    }
+                    eapi->commands[i].handler(args_arr, argc, eapi->commands[i].ctx);
+                    free(arg_copy);
+                } else {
+                    eapi->commands[i].handler(args_arr, 0, eapi->commands[i].ctx);
+                }
+                pthread_mutex_lock(&state->mutex);
+                state->needs_render = true;
+                pthread_mutex_unlock(&state->mutex);
+                input_clear(state);
+                sync_input_to_renderer(state);
+                return true;
+            }
+        }
+    }
+
     /* Unknown command */
     pthread_mutex_lock(&state->mutex);
     char buf[128];
