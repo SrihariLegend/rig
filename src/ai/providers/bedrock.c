@@ -28,9 +28,11 @@ static void bedrock_sse_handler(const char *event_type, const char *data, void *
 
     cJSON *type = cJSON_GetObjectItem(json, "type");
     if (!type || !cJSON_IsString(type)) {
+        LOG_DEBUG("bedrock: frame without type");
         cJSON_Delete(json);
         return;
     }
+    LOG_DEBUG("bedrock: event type=%s", type->valuestring);
 
     if (strcmp(type->valuestring, "error") == 0) {
         cJSON *err = cJSON_GetObjectItem(json, "error");
@@ -233,12 +235,14 @@ static cJSON *build_body(const Model *model, const Message *messages, int msg_co
             if (tools[i].description) {
                 cJSON_AddStringToObject(tool, "description", tools[i].description);
             }
-            if (tools[i].parameters) {
-                cJSON_AddItemToObject(tool, "input_schema",
-                    cJSON_Duplicate(tools[i].parameters, true));
-            } else {
-                cJSON *schema = cJSON_CreateObject();
-                cJSON_AddStringToObject(schema, "type", "object");
+            {
+                cJSON *schema = tools[i].parameters
+                    ? cJSON_Duplicate(tools[i].parameters, true)
+                    : cJSON_CreateObject();
+                /* Bedrock requires "type": "object" in input_schema */
+                if (!cJSON_GetObjectItem(schema, "type")) {
+                    cJSON_AddStringToObject(schema, "type", "object");
+                }
                 cJSON_AddItemToObject(tool, "input_schema", schema);
             }
             cJSON_AddItemToArray(tools_arr, tool);
@@ -269,6 +273,16 @@ static void bedrock_event_handler(const char *json_event, void *ctx) {
 
 static void bedrock_raw_data(const unsigned char *data, size_t len, void *ctx) {
     BedrockRawCtx *raw = (BedrockRawCtx *)ctx;
+    /* Log first 200 bytes of raw response for debugging */
+    char preview[201];
+    size_t plen = len < 200 ? len : 200;
+    memcpy(preview, data, plen);
+    preview[plen] = '\0';
+    /* Replace non-printable with dots for logging */
+    for (size_t i = 0; i < plen; i++) {
+        if (preview[i] < 32 && preview[i] != '\n') preview[i] = '.';
+    }
+    LOG_DEBUG("bedrock: raw %zu bytes: %.200s", len, preview);
     eventstream_parser_feed(raw->parser, data, len);
 }
 
@@ -313,6 +327,7 @@ static int bedrock_stream_apikey(const Model *model, const Message *messages, in
         .ctx = &raw_ctx,
     };
     int result = http_stream_raw(&raw_req);
+    LOG_INFO("bedrock: http_stream_raw returned %d", result);
 
     free(body_str);
     eventstream_parser_free(parser);

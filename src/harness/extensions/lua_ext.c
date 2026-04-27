@@ -619,8 +619,22 @@ static int lua_rig_set(lua_State *L) {
         lua_pop(L, 1);
 
         lua_getfield(L, 3, "params");
-        cJSON *params = lua_istable(L, -1) ? lua_to_cjson(L, -1) : cJSON_CreateObject();
+        cJSON *raw_params = lua_istable(L, -1) ? lua_to_cjson(L, -1) : NULL;
         lua_pop(L, 1);
+
+        /* Build proper JSON Schema: {"type":"object","properties":{...}} */
+        cJSON *params = cJSON_CreateObject();
+        cJSON_AddStringToObject(params, "type", "object");
+        if (raw_params) {
+            if (cJSON_GetObjectItem(raw_params, "type")) {
+                /* Already a proper schema */
+                cJSON_Delete(params);
+                params = raw_params;
+            } else {
+                /* Bare {key: {type: ...}} — wrap as properties */
+                cJSON_AddItemToObject(params, "properties", raw_params);
+            }
+        }
 
         lua_getfield(L, 3, "instructions");
         const char *instructions = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
