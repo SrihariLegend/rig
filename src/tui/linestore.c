@@ -295,6 +295,23 @@ void linestore_flush_stream(LineStore *ls) {
         ls->lines[ls->count].spans = NULL;
     }
 
+    /* Strip leading whitespace per line to prevent false code blocks.
+     * Models sometimes indent tables/lists with 4+ spaces. */
+    {
+        char *src = ls->stream_buf;
+        char *dst = ls->stream_buf;
+        bool at_line_start = true;
+        for (int i = 0; i < ls->stream_len; i++) {
+            if (at_line_start && (src[i] == ' ' || src[i] == '\t')) {
+                continue;
+            }
+            at_line_start = (src[i] == '\n');
+            *dst++ = src[i];
+        }
+        *dst = '\0';
+        ls->stream_len = (int)(dst - ls->stream_buf);
+    }
+
     /* Parse full text through md4c */
     int before = ls->count;
     md_render_to_linestore(ls, ls->stream_buf, ls->stream_len, LINE_ASSISTANT_TEXT);
