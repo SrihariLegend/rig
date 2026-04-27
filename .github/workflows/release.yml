@@ -19,9 +19,6 @@ jobs:
           - os: macos-latest
             target: macos-arm64
             cc: clang
-          - os: macos-13
-            target: macos-amd64
-            cc: clang
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -85,5 +82,4 @@ jobs:
             --title "Rig ${{ github.ref_name }}" \
             --generate-notes \
             rig-linux-amd64 rig-linux-amd64.sha256 \
-            rig-macos-arm64 rig-macos-arm64.sha256 \
-            rig-macos-amd64 rig-macos-amd64.sha256
+            rig-macos-arm64 rig-macos-arm64.sha256
