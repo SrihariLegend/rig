@@ -11,6 +11,8 @@
 #include "harness/turnlog.h"
 #include "harness/settings.h"
 #include "harness/extensions/lua_ext.h"
+#include "harness/ext_build_prompt.h"
+#include "ai/registry.h"
 #include "tui/lantern.h"
 #include "tui/linestore.h"
 #include "tui/lantern_render.h"
@@ -206,6 +208,25 @@ static void history_down(InteractiveState *state) {
         history_set_input(state, state->history_stash);
         free(state->history_stash);
         state->history_stash = NULL;
+    }
+}
+
+/* ---- LLM call helper for /ext build ---- */
+
+typedef struct {
+    Str *text;
+    bool done;
+} ExtBuildBridge;
+
+static void ext_build_stream_cb(StreamEvent *event, void *ud) {
+    ExtBuildBridge *b = (ExtBuildBridge *)ud;
+    if (event->type == EVENT_TEXT_DELTA && event->delta) str_append(b->text, event->delta);
+    if (event->type == EVENT_DONE) b->done = true;
+    if (event->type == EVENT_ERROR && event->error_message) {
+        str_append(b->text, "[error: ");
+        str_append(b->text, event->error_message);
+        str_append(b->text, "]");
+        b->done = true;
     }
 }
 
@@ -1155,6 +1176,7 @@ static bool handle_slash_command(InteractiveState *state) {
             cmd_output(state, "/sessions    — list saved sessions");
             cmd_output(state, "/fork        — fork to new session");
             cmd_output(state, "/theme <name> — switch color theme");
+            cmd_output(state, "/ext <sub>    — extension manager");
             cmd_output(state, "/clear       — clear conversation");
             cmd_output(state, "/exit        — quit (/q)");
         } else if (strcmp(arg, "model") == 0) {
@@ -1192,6 +1214,13 @@ static bool handle_slash_command(InteractiveState *state) {
         } else if (strcmp(arg, "fork") == 0) {
             cmd_output(state, "/fork          — create new session, keep conversation on screen");
             cmd_output(state, "context carries over, new session ID for persistence");
+        } else if (strcmp(arg, "ext") == 0) {
+            cmd_output(state, "/ext build <desc>  — generate extension with AI");
+            cmd_output(state, "/ext add <url>     — install from URL or git repo");
+            cmd_output(state, "/ext list          — show loaded extensions");
+            cmd_output(state, "/ext remove <name> — delete extension");
+            cmd_output(state, "/ext reload        — hot-reload all extensions");
+            cmd_output(state, "/ext edit <name>   — open in $EDITOR");
         } else if (strcmp(arg, "clear") == 0) {
             cmd_output(state, "/clear         — reset agent context (model forgets conversation)");
             cmd_output(state, "display stays visible, only the model's memory is wiped");
@@ -1207,6 +1236,428 @@ static bool handle_slash_command(InteractiveState *state) {
             snprintf(buf, sizeof(buf), "no help for '%s'", arg);
             cmd_output(state, buf);
         }
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /ext [build|add|list|remove|reload|edit] */
+    if (strcmp(cmd, "ext") == 0) {
+        if (!arg) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "usage: /ext [build|add|list|remove|reload|edit]");
+            cmd_finish(state);
+            return true;
+        }
+
+        /* Parse subcommand */
+        char subcmd[32] = {0};
+        const char *subarg = NULL;
+        const char *sp = strchr(arg, ' ');
+        if (sp) {
+            int slen = (int)(sp - arg);
+            if (slen > 31) slen = 31;
+            memcpy(subcmd, arg, slen);
+            subarg = sp + 1;
+            while (*subarg == ' ') subarg++;
+            if (!*subarg) subarg = NULL;
+        } else {
+            strncpy(subcmd, arg, 31);
+        }
+
+        /* /ext list */
+        if (strcmp(subcmd, "list") == 0) {
+            pthread_mutex_lock(&state->mutex);
+            if (state->pi && state->pi->api) {
+                PiExtensionAPI *api = state->pi->api;
+                if (api->extension_count == 0) {
+                    cmd_output(state, "no extensions loaded");
+                } else {
+                    char lbuf[256];
+                    for (int i = 0; i < api->extension_count; i++) {
+                        Extension *ext = api->extensions[i];
+                        snprintf(lbuf, sizeof(lbuf), "  %s%s%s",
+                                 ext->name ? ext->name : "?",
+                                 ext->is_lua ? " (lua)" : ext->is_yaml ? " (yaml)" : " (native)",
+                                 ext->path ? "" : " [no path]");
+                        cmd_output(state, lbuf);
+                    }
+                }
+            } else {
+                cmd_output(state, "no extension API");
+            }
+            cmd_finish(state);
+            return true;
+        }
+
+        /* /ext remove <name> */
+        if (strcmp(subcmd, "remove") == 0) {
+            if (!subarg) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "usage: /ext remove <name>");
+                cmd_finish(state);
+                return true;
+            }
+            /* Find extension by name and delete file */
+            pthread_mutex_lock(&state->mutex);
+            bool found = false;
+            if (state->pi && state->pi->api) {
+                for (int i = 0; i < state->pi->api->extension_count; i++) {
+                    Extension *ext = state->pi->api->extensions[i];
+                    if (ext && ext->name && strstr(ext->name, subarg)) {
+                        if (ext->path && fs_exists(ext->path)) {
+                            unlink(ext->path);
+                            char lbuf[256];
+                            snprintf(lbuf, sizeof(lbuf), "removed %s", ext->name);
+                            cmd_output(state, lbuf);
+                            found = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!found) cmd_output(state, "extension not found");
+            cmd_finish(state);
+            return true;
+        }
+
+        /* /ext reload */
+        if (strcmp(subcmd, "reload") == 0) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "reloading extensions...");
+            pthread_mutex_unlock(&state->mutex);
+
+            if (state->pi && state->pi->api) {
+                /* Free existing Lua extension states */
+                PiExtensionAPI *api = state->pi->api;
+                for (int i = api->extension_count - 1; i >= 0; i--) {
+                    Extension *ext = api->extensions[i];
+                    if (ext && ext->is_lua && ext->lua_state) {
+                        lua_ext_free((LuaExtState *)ext->lua_state);
+                        ext->lua_state = NULL;
+                        free(ext->name);
+                        free(ext->path);
+                        free(ext);
+                        api->extensions[i] = api->extensions[api->extension_count - 1];
+                        api->extension_count--;
+                    }
+                }
+
+                /* Re-discover and load */
+                const char *global_dir = config_agent_dir();
+                const char *pd = config_project_dir();
+                extension_discover_and_load(api, pd, global_dir);
+
+                /* Re-wire context */
+                RigLuaContext reload_ctx = {
+                    .agent = state->agent,
+                    .store = state->store,
+                    .model = state->model,
+                    .api_key = state->api_key,
+                    .cwd = state->cwd,
+                    .mutex = &state->mutex,
+                    .running = &state->running,
+                };
+                for (int i = 0; i < api->extension_count; i++) {
+                    Extension *ext = api->extensions[i];
+                    if (ext && ext->is_lua && ext->lua_state) {
+                        lua_ext_set_context((LuaExtState *)ext->lua_state, &reload_ctx);
+                    }
+                }
+            }
+
+            pthread_mutex_lock(&state->mutex);
+            char lbuf[128];
+            snprintf(lbuf, sizeof(lbuf), "loaded %d extensions",
+                     state->pi && state->pi->api ? state->pi->api->extension_count : 0);
+            cmd_output(state, lbuf);
+            cmd_finish(state);
+            return true;
+        }
+
+        /* /ext edit <name> */
+        if (strcmp(subcmd, "edit") == 0) {
+            if (!subarg) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "usage: /ext edit <name>");
+                cmd_finish(state);
+                return true;
+            }
+            const char *editor = getenv("EDITOR");
+            if (!editor) editor = "vi";
+
+            /* Find extension path */
+            const char *ext_path = NULL;
+            if (state->pi && state->pi->api) {
+                for (int i = 0; i < state->pi->api->extension_count; i++) {
+                    Extension *ext = state->pi->api->extensions[i];
+                    if (ext && ext->name && strstr(ext->name, subarg) && ext->path) {
+                        ext_path = ext->path;
+                        break;
+                    }
+                }
+            }
+            if (!ext_path) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "extension not found");
+                cmd_finish(state);
+                return true;
+            }
+
+            /* Exit alt screen, run editor, re-enter */
+            terminal_disable_mouse();
+            terminal_disable_bracketed_paste();
+            terminal_disable_kitty_keyboard();
+            terminal_exit_raw_mode();
+            terminal_exit_alt_screen();
+
+            char edit_cmd[512];
+            snprintf(edit_cmd, sizeof(edit_cmd), "%s '%s'", editor, ext_path);
+            system(edit_cmd);
+
+            terminal_enter_alt_screen();
+            terminal_enter_raw_mode();
+            terminal_enable_kitty_keyboard();
+            terminal_enable_bracketed_paste();
+            terminal_enable_mouse();
+
+            int tw, th;
+            terminal_get_size(&tw, &th);
+            lantern_renderer_resize(state->renderer, tw, th);
+            lantern_renderer_render_full(state->renderer);
+
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "editor closed — use /ext reload to apply changes");
+            cmd_finish(state);
+            return true;
+        }
+
+        /* /ext add <url> */
+        if (strcmp(subcmd, "add") == 0) {
+            if (!subarg) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "usage: /ext add <url>");
+                cmd_finish(state);
+                return true;
+            }
+
+            const char *pd = config_project_dir();
+            char ext_dir[512];
+            snprintf(ext_dir, sizeof(ext_dir), "%s/extensions", pd ? pd : ".");
+            fs_mkdir_p(ext_dir);
+
+            /* Determine if git URL or direct file */
+            bool is_git = (strstr(subarg, ".git") != NULL);
+
+            if (is_git) {
+                char clone_cmd[1024];
+                snprintf(clone_cmd, sizeof(clone_cmd), "git clone --depth 1 '%s' '%s/'", subarg, ext_dir);
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "cloning...");
+                pthread_mutex_unlock(&state->mutex);
+
+                Str output = str_new(1024);
+                ProcessOptions popts = {
+                    .command = clone_cmd,
+                    .cwd = state->cwd,
+                    .timeout_ms = 30000,
+                    .on_stdout = collect_output,
+                    .on_stderr = collect_output,
+                    .ctx = &output,
+                };
+                ProcessResult presult;
+                process_run(&popts, &presult);
+
+                pthread_mutex_lock(&state->mutex);
+                if (presult.exit_code == 0) {
+                    cmd_output(state, "cloned — use /ext reload to load");
+                } else {
+                    cmd_output(state, "clone failed");
+                    if (output.len > 0) linestore_add_tool_output(state->store, output.data);
+                }
+                str_free(&output);
+            } else {
+                /* Download single file with curl */
+                const char *filename = strrchr(subarg, '/');
+                filename = filename ? filename + 1 : "extension.lua";
+
+                char dest[512];
+                snprintf(dest, sizeof(dest), "%s/%s", ext_dir, filename);
+
+                char dl_cmd[1024];
+                snprintf(dl_cmd, sizeof(dl_cmd), "curl -sL -o '%s' '%s'", dest, subarg);
+
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "downloading...");
+                pthread_mutex_unlock(&state->mutex);
+
+                Str output = str_new(1024);
+                ProcessOptions popts = {
+                    .command = dl_cmd,
+                    .cwd = state->cwd,
+                    .timeout_ms = 15000,
+                    .on_stdout = collect_output,
+                    .on_stderr = collect_output,
+                    .ctx = &output,
+                };
+                ProcessResult presult;
+                process_run(&popts, &presult);
+
+                pthread_mutex_lock(&state->mutex);
+                if (presult.exit_code == 0 && fs_exists(dest)) {
+                    char lbuf[256];
+                    snprintf(lbuf, sizeof(lbuf), "saved %s — use /ext reload to load", filename);
+                    cmd_output(state, lbuf);
+                } else {
+                    cmd_output(state, "download failed");
+                }
+                str_free(&output);
+            }
+            cmd_finish(state);
+            return true;
+        }
+
+        /* /ext build <description> */
+        if (strcmp(subcmd, "build") == 0) {
+            if (!subarg) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "usage: /ext build <description of what the extension should do>");
+                cmd_finish(state);
+                return true;
+            }
+            if (!state->model || !state->api_key) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "no model configured");
+                cmd_finish(state);
+                return true;
+            }
+
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "generating extension...");
+            pthread_mutex_unlock(&state->mutex);
+
+            /* Build the prompt */
+            char *user_prompt = malloc(strlen(subarg) + 128);
+            if (!user_prompt) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "out of memory");
+                cmd_finish(state);
+                return true;
+            }
+            snprintf(user_prompt, strlen(subarg) + 128,
+                "Write a Rig Lua extension that does the following:\n%s", subarg);
+
+            Message *msg = message_create_user(user_prompt);
+            free(user_prompt);
+            if (!msg) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "failed to create message");
+                cmd_finish(state);
+                return true;
+            }
+
+            Message flat = *msg;
+            Str response = str_new(4096);
+            ExtBuildBridge bridge = { .text = &response, .done = false };
+
+            SimpleStreamOptions sopts = {
+                .base = {
+                    .temperature = 0.3,
+                    .max_tokens = state->model->max_tokens,
+                    .api_key = state->api_key,
+                    .timeout_ms = 120000,
+                },
+                .reasoning = THINKING_OFF,
+            };
+
+            ai_stream_simple(state->model, &flat, 1,
+                            EXT_BUILD_SYSTEM_PROMPT, NULL, 0,
+                            &sopts, ext_build_stream_cb, &bridge);
+            message_free(msg);
+
+            if (!response.data || response.len == 0) {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "no response from model");
+                str_free(&response);
+                cmd_finish(state);
+                return true;
+            }
+
+            /* Strip markdown fences if model included them */
+            char *code = response.data;
+            if (strncmp(code, "```lua\n", 7) == 0) code += 7;
+            else if (strncmp(code, "```\n", 4) == 0) code += 4;
+            char *fence_end = strstr(code, "\n```");
+            if (fence_end) *fence_end = '\0';
+
+            /* Show the generated code */
+            pthread_mutex_lock(&state->mutex);
+            linestore_add_blank(state->store);
+            linestore_add_tool_output(state->store, code);
+            linestore_add_blank(state->store);
+            cmd_output(state, "save this extension? (y/n)");
+            state->needs_render = true;
+            pthread_mutex_unlock(&state->mutex);
+
+            /* Wait for y/n */
+            struct pollfd pfd2 = { .fd = STDIN_FILENO, .events = POLLIN };
+            bool confirmed = false;
+            while (1) {
+                int ready = poll(&pfd2, 1, 100);
+                if (ready > 0) {
+                    char ch[16];
+                    ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
+                    if (n > 0) {
+                        if (ch[0] == 'y' || ch[0] == 'Y') { confirmed = true; break; }
+                        if (ch[0] == 'n' || ch[0] == 'N' || ch[0] == '\x1b' || ch[0] == '\x03') break;
+                    }
+                }
+            }
+
+            pthread_mutex_lock(&state->mutex);
+            if (!confirmed) {
+                cmd_output(state, "cancelled");
+                str_free(&response);
+                cmd_finish(state);
+                return true;
+            }
+
+            /* Generate filename from description */
+            char filename[128] = {0};
+            int fi = 0;
+            for (const char *p = subarg; *p && fi < 60; p++) {
+                char c = *p;
+                if (c >= 'a' && c <= 'z') filename[fi++] = c;
+                else if (c >= 'A' && c <= 'Z') filename[fi++] = (char)(c + 32);
+                else if (c >= '0' && c <= '9') filename[fi++] = c;
+                else if (c == ' ' && fi > 0 && filename[fi-1] != '-') filename[fi++] = '-';
+            }
+            while (fi > 0 && filename[fi-1] == '-') fi--;
+            filename[fi] = '\0';
+            if (fi == 0) strcpy(filename, "extension");
+
+            /* Save to .rig/extensions/ */
+            const char *pd = config_project_dir();
+            char ext_dir[512];
+            snprintf(ext_dir, sizeof(ext_dir), "%s/extensions", pd ? pd : ".");
+            fs_mkdir_p(ext_dir);
+
+            char save_path[512];
+            snprintf(save_path, sizeof(save_path), "%s/%s.lua", ext_dir, filename);
+
+            fs_write_file(save_path, code, strlen(code));
+
+            char lbuf[256];
+            snprintf(lbuf, sizeof(lbuf), "saved to %s", save_path);
+            cmd_output(state, lbuf);
+            cmd_output(state, "use /ext reload to load it");
+
+            str_free(&response);
+            cmd_finish(state);
+            return true;
+        }
+
+        pthread_mutex_lock(&state->mutex);
+        cmd_output(state, "usage: /ext [build|add|list|remove|reload|edit]");
         cmd_finish(state);
         return true;
     }
