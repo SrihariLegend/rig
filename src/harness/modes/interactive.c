@@ -340,6 +340,12 @@ static void *agent_thread_fn(void *raw_arg) {
     return NULL;
 }
 
+/* ---- Helpers ---- */
+
+static void collect_output(const char *data, size_t len, void *ctx) {
+    str_append_len((Str *)ctx, data, len);
+}
+
 /* ---- Slash Commands ---- */
 
 static void cmd_output(InteractiveState *state, const char *text) {
@@ -480,8 +486,8 @@ static bool handle_slash_command(InteractiveState *state) {
             .command = arg,
             .cwd = state->cwd,
             .timeout_ms = 30000,
-            .on_stdout = (void (*)(const char *, size_t, void *))str_append_len,
-            .on_stderr = (void (*)(const char *, size_t, void *))str_append_len,
+            .on_stdout = collect_output,
+            .on_stderr = collect_output,
             .ctx = &output,
         };
         ProcessResult result;
@@ -542,8 +548,8 @@ static bool handle_slash_command(InteractiveState *state) {
             .command = "git diff --stat",
             .cwd = state->cwd,
             .timeout_ms = 10000,
-            .on_stdout = (void (*)(const char *, size_t, void *))str_append_len,
-            .on_stderr = (void (*)(const char *, size_t, void *))str_append_len,
+            .on_stdout = collect_output,
+            .on_stderr = collect_output,
             .ctx = &output,
         };
         ProcessResult result;
@@ -609,6 +615,7 @@ static bool handle_slash_command(InteractiveState *state) {
     if (strcmp(cmd, "sessions") == 0) {
         pthread_mutex_lock(&state->mutex);
         const char *dir = config_sessions_dir();
+        if (!dir) { cmd_output(state, "no sessions directory"); cmd_finish(state); return true; }
         char list_cmd[512];
         snprintf(list_cmd, sizeof(list_cmd), "ls -1t '%s'/*.jsonl 2>/dev/null | head -20", dir);
         pthread_mutex_unlock(&state->mutex);
@@ -617,7 +624,7 @@ static bool handle_slash_command(InteractiveState *state) {
         ProcessOptions opts = {
             .command = list_cmd,
             .timeout_ms = 5000,
-            .on_stdout = (void (*)(const char *, size_t, void *))str_append_len,
+            .on_stdout = collect_output,
             .ctx = &output,
         };
         ProcessResult result;
