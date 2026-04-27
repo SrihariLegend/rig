@@ -1,5 +1,13 @@
 CC = cc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+  PLATFORM_DEFS = -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
+else
+  PLATFORM_DEFS = -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+endif
+
+CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g $(PLATFORM_DEFS)
 CFLAGS += -I src -I deps -I deps/lua5.4 -I deps/libyaml -I deps/md4c
 CFLAGS += -DLUA_USE_POSIX -DHAVE_CONFIG_H
 LDFLAGS = -lcurl -lssl -lcrypto -lm -ldl -lpthread -lz
