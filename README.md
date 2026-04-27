@@ -7,7 +7,7 @@ A coding agent that runs anywhere, connects to everything, and gets out of your 
 Rig is not another wrapper around an API. It's a from-scratch engine for AI-assisted coding — built to be the layer that everything else runs on.
 
 ```
-curl -fsSL https://rig.dev/install | sh
+curl -fsSL https://raw.githubusercontent.com/SrihariLegend/rig/main/install.sh | sh
 rig auth
 rig
 ```
@@ -153,16 +153,27 @@ Full documentation: [`docs/extensions.md`](docs/extensions.md)
 
 ## Install
 
+### Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SrihariLegend/rig/main/install.sh | sh
+```
+
+Downloads prebuilt binary for your platform (Linux amd64/arm64, macOS amd64/arm64), verifies checksum, installs to `/usr/local/bin`.
+
+Pin a version: `RIG_VERSION=v0.1.0 sh -c "$(curl -fsSL ...)"`. Custom path: `RIG_INSTALL_DIR=~/.local/bin`.
+
 ### From Source
 
 Requires: a C11 compiler, `libcurl`, `libssl` (OpenSSL), `zlib`. That's it.
 
 ```bash
-git clone https://github.com/nichochar/rig.git
+git clone https://github.com/SrihariLegend/rig.git
 cd rig
 make
-./rig auth
-./rig
+sudo make install   # installs to /usr/local/bin
+rig auth
+rig
 ```
 
 The build vendors its own Lua 5.4, cJSON, libyaml, and md4c. No package manager needed.

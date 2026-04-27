@@ -68,7 +68,9 @@ ALL_OBJ = $(DEPS_OBJ) $(UTIL_OBJ) $(AI_OBJ) $(AGENT_OBJ) $(HARNESS_OBJ) \
 TEST_SRC = $(wildcard test/test_*.c)
 TEST_BIN = $(TEST_SRC:.c=)
 
-.PHONY: all clean test
+PREFIX ?= /usr/local
+
+.PHONY: all clean test install
 
 all: librig.a rig
 
@@ -100,6 +102,10 @@ test/%: test/%.c librig.a
 
 test: $(TEST_BIN)
 	@for t in $(TEST_BIN); do echo "Running $$t..."; ./$$t || exit 1; done
+
+install: rig
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 rig $(DESTDIR)$(PREFIX)/bin/rig
 
 clean:
 	rm -f $(ALL_OBJ) src/main.o librig.a rig $(TEST_BIN)

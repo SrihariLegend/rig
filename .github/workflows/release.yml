@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+            cc: gcc
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            cc: gcc
+          - os: macos-latest
+            target: macos-arm64
+            cc: clang
+          - os: macos-13
+            target: macos-amd64
+            cc: clang
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev zlib1g-dev
+
+      - name: Install deps (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: brew install curl openssl@3 zlib
+
+      - name: Build
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          if [[ "${{ matrix.os }}" == macos* ]]; then
+            export CFLAGS="-I$(brew --prefix openssl@3)/include"
+            export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
+          fi
+          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) CC=$CC
+          strip rig
+
+      - name: Package
+        run: |
+          mv rig rig-${{ matrix.target }}
+          sha256sum rig-${{ matrix.target }} > rig-${{ matrix.target }}.sha256 || shasum -a 256 rig-${{ matrix.target }} > rig-${{ matrix.target }}.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rig-${{ matrix.target }}
+          path: |
+            rig-${{ matrix.target }}
+            rig-${{ matrix.target }}.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --repo ${{ github.repository }} \
+            --title "Rig ${{ github.ref_name }}" \
+            --generate-notes \
+            rig-linux-amd64 rig-linux-amd64.sha256 \
+            rig-linux-arm64 rig-linux-arm64.sha256 \
+            rig-macos-arm64 rig-macos-arm64.sha256 \
+            rig-macos-amd64 rig-macos-amd64.sha256
