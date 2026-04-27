@@ -1181,6 +1181,64 @@ static bool handle_slash_command(InteractiveState *state) {
         return true;
     }
 
+    /* /trust [list|reset|yolo|<tool> [pattern]] */
+    if (strcmp(cmd, "trust") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        if (!arg || strcmp(arg, "list") == 0) {
+            if (state->perms->yolo) {
+                cmd_output(state, "mode: TRUST ALL (yolo)");
+            } else if (state->perms->count == 0) {
+                cmd_output(state, "no trust rules — all tools will prompt");
+            } else {
+                char buf[256];
+                for (int i = 0; i < state->perms->count; i++) {
+                    TrustRule *r = &state->perms->rules[i];
+                    if (r->pattern) {
+                        snprintf(buf, sizeof(buf), "  %s '%s'", r->tool, r->pattern);
+                    } else {
+                        snprintf(buf, sizeof(buf), "  %s (all)", r->tool);
+                    }
+                    cmd_output(state, buf);
+                }
+            }
+        } else if (strcmp(arg, "reset") == 0) {
+            permissions_free(state->perms);
+            state->perms = permissions_create();
+            permissions_trust(state->perms, "read", NULL);
+            permissions_trust(state->perms, "grep", NULL);
+            permissions_trust(state->perms, "ls", NULL);
+            cmd_output(state, "trust reset to defaults (read/grep/ls)");
+        } else if (strcmp(arg, "yolo") == 0) {
+            permissions_trust(state->perms, "*", NULL);
+            cmd_output(state, "TRUST ALL — no more permission prompts");
+        } else {
+            /* /trust <tool> [pattern] */
+            char tool[64] = {0};
+            const char *pattern = NULL;
+            const char *sp2 = strchr(arg, ' ');
+            if (sp2) {
+                int tlen = (int)(sp2 - arg);
+                if (tlen > 63) tlen = 63;
+                memcpy(tool, arg, tlen);
+                pattern = sp2 + 1;
+                while (*pattern == ' ') pattern++;
+                if (!*pattern) pattern = NULL;
+            } else {
+                strncpy(tool, arg, 63);
+            }
+            permissions_trust(state->perms, tool, pattern);
+            char buf[256];
+            if (pattern) {
+                snprintf(buf, sizeof(buf), "trusted: %s '%s'", tool, pattern);
+            } else {
+                snprintf(buf, sizeof(buf), "trusted: %s (all)", tool);
+            }
+            cmd_output(state, buf);
+        }
+        cmd_finish(state);
+        return true;
+    }
+
     /* /session <id> — switch to a session */
     if (strcmp(cmd, "session") == 0) {
         if (!arg) {
@@ -1369,6 +1427,7 @@ static bool handle_slash_command(InteractiveState *state) {
             cmd_output(state, "/sessions    — list saved sessions");
             cmd_output(state, "/fork        — fork to new session");
             cmd_output(state, "/theme <name> — switch color theme");
+            cmd_output(state, "/trust [args] — manage tool permissions");
             cmd_output(state, "/ext <sub>    — extension manager");
             cmd_output(state, "/clear       — clear conversation");
             cmd_output(state, "/exit        — quit (/q)");
@@ -1407,6 +1466,15 @@ static bool handle_slash_command(InteractiveState *state) {
         } else if (strcmp(arg, "fork") == 0) {
             cmd_output(state, "/fork          — create new session, keep conversation on screen");
             cmd_output(state, "context carries over, new session ID for persistence");
+        } else if (strcmp(arg, "trust") == 0) {
+            cmd_output(state, "/trust             — show current trust rules");
+            cmd_output(state, "/trust list        — same as above");
+            cmd_output(state, "/trust reset       — reset to defaults (read/grep/ls trusted)");
+            cmd_output(state, "/trust yolo        — trust ALL tools, no prompts");
+            cmd_output(state, "/trust bash        — trust all bash commands");
+            cmd_output(state, "/trust bash 'git *' — trust bash commands starting with git");
+            cmd_output(state, "/trust write /home/* — trust writes under /home/");
+            cmd_output(state, "during prompts: [y]es [n]o [t]rust tool [a]llow pattern [!] yolo");
         } else if (strcmp(arg, "ext") == 0) {
             cmd_output(state, "/ext build <desc>  — generate extension with AI");
             cmd_output(state, "/ext add <url>     — install from URL or git repo");
