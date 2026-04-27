@@ -21,3 +21,11 @@ deps/lua5.4/
 deps/libyaml/
 deps/libyaml-src/
 pi_asan
+*.d
+*.o
+*.a
+hello
+hello.c
+/pi
+test/test_*
+!test/test_*.c

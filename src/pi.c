@@ -24,7 +24,6 @@ void pi_free(PiInstance *pi) {
     if (!pi) return;
 
     if (pi->rpc) rpc_server_free(pi->rpc);
-    if (pi->tui) tui_free(pi->tui);
     if (pi->session) session_free(pi->session);
     if (pi->api) extension_api_free(pi->api);
 
@@ -69,9 +68,5 @@ int pi_run_rpc(PiInstance *pi) {
 int pi_run_interactive(PiInstance *pi) {
     if (!pi) return -1;
     if (!pi->initialized) pi_init(pi);
-
-    pi->tui = tui_create();
-    if (!pi->tui) return -1;
-
     return 0;
 }

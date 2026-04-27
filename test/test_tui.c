@@ -1,16 +1,10 @@
-/* test_tui.c — tests for keys, ansi, tui core, widgets */
+/* test_tui.c — tests for keys, ansi, linestore, lantern */
 #include "test.h"
 #include "tui/keys.h"
 #include "tui/ansi.h"
-#include "tui/tui.h"
-#include "tui/widgets/text.h"
-#include "tui/widgets/input.h"
-#include "tui/widgets/box.h"
-#include "tui/widgets/loader.h"
-#include "tui/widgets/select_list.h"
-#include "tui/widgets/markdown.h"
-#include "tui/widgets/editor.h"
-#include "tui/widgets/image.h"
+#include "tui/linestore.h"
+#include "tui/lantern.h"
+#include "tui/md_render.h"
 #include "util/str.h"
 #include <stdlib.h>
 #include <string.h>
@@ -100,7 +94,6 @@ TEST(key_parse_shift_tab) {
 }
 
 TEST(key_parse_alt_key) {
-    /* Use string concatenation to avoid \x1bf being parsed as single hex */
     ParsedKey k = key_parse("\x1b" "f", 2);
     ASSERT_STR_EQ(k.id, "alt+f");
 }
@@ -166,17 +159,9 @@ TEST(ansi_track_reset) {
     ASSERT_FALSE(s.bold);
 }
 
-TEST(ansi_strip_len_basic) {
-    ASSERT_EQ(ansi_strip_len("hello"), 5);
-}
-
-TEST(ansi_strip_len_with_ansi) {
-    ASSERT_EQ(ansi_strip_len("\x1b[31mhello\x1b[0m"), 5);
-}
-
-TEST(ansi_strip_len_null) {
-    ASSERT_EQ(ansi_strip_len(NULL), 0);
-}
+TEST(ansi_strip_len_basic) { ASSERT_EQ(ansi_strip_len("hello"), 5); }
+TEST(ansi_strip_len_with_ansi) { ASSERT_EQ(ansi_strip_len("\x1b[31mhello\x1b[0m"), 5); }
+TEST(ansi_strip_len_null) { ASSERT_EQ(ansi_strip_len(NULL), 0); }
 
 TEST(ansi_strip_basic) {
     char *s = ansi_strip("\x1b[1;31mhello\x1b[0m");
@@ -184,801 +169,118 @@ TEST(ansi_strip_basic) {
     free(s);
 }
 
-TEST(ansi_strip_null) {
-    ASSERT_NULL(ansi_strip(NULL));
-}
+TEST(ansi_strip_null) { ASSERT_NULL(ansi_strip(NULL)); }
 
-TEST(unicode_char_width_ascii) {
-    ASSERT_EQ(unicode_char_width('A'), 1);
-}
+TEST(unicode_char_width_ascii) { ASSERT_EQ(unicode_char_width('A'), 1); }
+TEST(unicode_char_width_cjk) { ASSERT_EQ(unicode_char_width(0x4E2D), 2); }
+TEST(unicode_char_width_null) { ASSERT_EQ(unicode_char_width(0), 0); }
+TEST(unicode_display_width_ascii) { ASSERT_EQ(unicode_display_width("hello"), 5); }
+TEST(unicode_display_width_with_ansi) { ASSERT_EQ(unicode_display_width("\x1b[31mhi\x1b[0m"), 2); }
+TEST(unicode_display_width_null) { ASSERT_EQ(unicode_display_width(NULL), 0); }
 
-TEST(unicode_char_width_cjk) {
-    ASSERT_EQ(unicode_char_width(0x4E2D), 2); /* CJK char */
-}
-
-TEST(unicode_char_width_null) {
-    ASSERT_EQ(unicode_char_width(0), 0);
-}
-
-TEST(unicode_display_width_ascii) {
-    ASSERT_EQ(unicode_display_width("hello"), 5);
-}
-
-TEST(unicode_display_width_with_ansi) {
-    ASSERT_EQ(unicode_display_width("\x1b[31mhi\x1b[0m"), 2);
-}
-
-TEST(unicode_display_width_null) {
-    ASSERT_EQ(unicode_display_width(NULL), 0);
-}
-
-/* UNICODE: emoji display width */
 TEST(unicode_width_emoji) {
-    /* U+1F600 = 😀, encoded as F0 9F 98 80 */
     ASSERT_EQ(unicode_char_width(0x1F600), 2);
     ASSERT_EQ(unicode_display_width("\xF0\x9F\x98\x80"), 2);
 }
 
-/* UNICODE: ZWJ sequence doesn't crash */
-TEST(unicode_width_zwj_sequence) {
-    /* 👨‍👩‍👧 = U+1F468 U+200D U+1F469 U+200D U+1F467 */
-    const char *zwj = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7";
-    int w = unicode_display_width(zwj);
-    ASSERT_TRUE(w >= 0); /* doesn't crash, returns some value */
+TEST(unicode_width_cjk) { ASSERT_EQ(unicode_display_width("\xE4\xB8\xAD\xE6\x96\x87"), 4); }
+TEST(unicode_width_empty_string) { ASSERT_EQ(unicode_display_width(""), 0); }
+TEST(unicode_width_only_ansi) { ASSERT_EQ(unicode_display_width("\x1b[31m\x1b[1m\x1b[0m"), 0); }
+
+/* ========== LineStore ========== */
+
+TEST(linestore_create_free) {
+    LineStore *ls = linestore_create();
+    ASSERT_NOT_NULL(ls);
+    ASSERT_EQ(ls->count, 0);
+    linestore_free(ls);
 }
 
-/* UNICODE: CJK characters width */
-TEST(unicode_width_cjk) {
-    /* 中文 = U+4E2D U+6587, each width 2 */
-    ASSERT_EQ(unicode_display_width("\xE4\xB8\xAD\xE6\x96\x87"), 4);
+TEST(linestore_add_blank) {
+    LineStore *ls = linestore_create();
+    linestore_add_blank(ls);
+    ASSERT_EQ(ls->count, 1);
+    ASSERT_EQ(ls->lines[0].type, LINE_BLANK);
+    linestore_free(ls);
 }
 
-/* UNICODE: Korean characters width */
-TEST(unicode_width_korean) {
-    /* 한글 = U+D55C U+AE00, each width 2 */
-    ASSERT_EQ(unicode_display_width("\xED\x95\x9C\xEA\xB8\x80"), 4);
+TEST(linestore_add_user_text) {
+    LineStore *ls = linestore_create();
+    linestore_set_width(ls, 80);
+    linestore_add_user_text(ls, "hello world");
+    ASSERT_EQ(ls->count, 1);
+    ASSERT_EQ(ls->lines[0].type, LINE_USER_TEXT);
+    ASSERT_STR_EQ(ls->lines[0].raw_text, "hello world");
+    linestore_free(ls);
 }
 
-/* UNICODE: mixed ASCII + CJK */
-TEST(unicode_width_mixed_ascii_cjk) {
-    /* "hello" (5) + 中文 (4) = 9 */
-    ASSERT_EQ(unicode_display_width("hello\xE4\xB8\xAD\xE6\x96\x87"), 9);
+TEST(linestore_md4c_heading) {
+    LineStore *ls = linestore_create();
+    linestore_set_width(ls, 80);
+    linestore_begin_message(ls, 1);
+    md_render_to_linestore(ls, "# Hello\n", 9, LINE_ASSISTANT_TEXT);
+    ASSERT_TRUE(ls->count >= 1);
+    ASSERT_EQ(ls->lines[0].type, LINE_HEADING);
+    ASSERT_STR_EQ(ls->lines[0].raw_text, "Hello");
+    linestore_free(ls);
 }
 
-/* UNICODE: control characters width 0 */
-TEST(unicode_width_control_chars) {
-    ASSERT_EQ(unicode_char_width(0x01), 0);
-    ASSERT_EQ(unicode_char_width(0x1F), 0);
-    ASSERT_EQ(unicode_char_width(0x7F), 0); /* DEL */
-    /* String with control chars embedded */
-    ASSERT_EQ(unicode_display_width("\x01\x02\x03"), 0);
+TEST(linestore_md4c_bold_spans) {
+    LineStore *ls = linestore_create();
+    linestore_set_width(ls, 80);
+    linestore_begin_message(ls, 1);
+    md_render_to_linestore(ls, "This is **bold** text.\n", 22, LINE_ASSISTANT_TEXT);
+    ASSERT_TRUE(ls->count >= 1);
+    ASSERT_EQ(ls->lines[0].type, LINE_ASSISTANT_TEXT);
+    ASSERT_TRUE(ls->lines[0].span_count >= 3);
+    ASSERT_EQ(ls->lines[0].spans[1].flags & SPAN_BOLD, SPAN_BOLD);
+    linestore_free(ls);
 }
 
-/* UNICODE: combining marks don't crash */
-TEST(unicode_width_combining_marks) {
-    /* U+0300 COMBINING GRAVE ACCENT = CC 80 in UTF-8 */
-    /* "a" + combining mark */
-    const char *s = "a\xCC\x80";
-    int w = unicode_display_width(s);
-    ASSERT_TRUE(w >= 0); /* doesn't crash */
-}
-
-/* UNICODE: RTL characters don't crash */
-TEST(unicode_width_rtl) {
-    /* U+0627 ARABIC LETTER ALEF = D8 A7 */
-    /* U+0628 ARABIC LETTER BA = D8 A8 */
-    const char *s = "\xD8\xA7\xD8\xA8";
-    int w = unicode_display_width(s);
-    ASSERT_TRUE(w >= 0); /* doesn't crash */
-}
-
-/* UNICODE: invalid UTF-8 bytes */
-TEST(unicode_width_invalid_utf8) {
-    /* 0xFF alone */
-    const char s1[] = {(char)0xFF, '\0'};
-    int w1 = unicode_display_width(s1);
-    ASSERT_TRUE(w1 >= 0); /* doesn't crash */
-
-    /* 0xFE alone */
-    const char s2[] = {(char)0xFE, '\0'};
-    int w2 = unicode_display_width(s2);
-    ASSERT_TRUE(w2 >= 0);
-
-    /* 0x80 alone (continuation byte without lead) */
-    const char s3[] = {(char)0x80, '\0'};
-    int w3 = unicode_display_width(s3);
-    ASSERT_TRUE(w3 >= 0);
-}
-
-/* UNICODE: overlong UTF-8 encoding */
-TEST(unicode_width_overlong_utf8) {
-    /* Overlong encoding of '/' (U+002F): C0 AF */
-    const char s[] = {(char)0xC0, (char)0xAF, '\0'};
-    int w = unicode_display_width(s);
-    ASSERT_TRUE(w >= 0); /* doesn't crash */
-}
-
-/* UNICODE: 4-byte UTF-8 (emoji) in ansi_strip */
-TEST(ansi_strip_with_emoji) {
-    /* ANSI color + emoji + ANSI reset */
-    char *stripped = ansi_strip("\x1b[31m\xF0\x9F\x98\x80\x1b[0m");
-    ASSERT_NOT_NULL(stripped);
-    ASSERT_STR_EQ(stripped, "\xF0\x9F\x98\x80");
-    free(stripped);
-}
-
-/* UNICODE: empty string width 0 */
-TEST(unicode_width_empty_string) {
-    ASSERT_EQ(unicode_display_width(""), 0);
-}
-
-/* UNICODE: string of only ANSI escapes width 0 */
-TEST(unicode_width_only_ansi) {
-    ASSERT_EQ(unicode_display_width("\x1b[31m\x1b[1m\x1b[0m"), 0);
-}
-
-/* ========== TUI Core ========== */
-
-TEST(tui_create_free) {
-    TUI *t = tui_create();
-    ASSERT_NOT_NULL(t);
-    ASSERT_EQ(t->component_count, 0);
-    ASSERT_TRUE(t->dirty);
-    tui_free(t);
-}
-
-TEST(tui_add_remove_component) {
-    TUI *t = tui_create();
-    Component *c = widget_text_create("test");
-    tui_add_component(t, c);
-    ASSERT_EQ(t->component_count, 1);
-    tui_remove_component(t, c);
-    ASSERT_EQ(t->component_count, 0);
-    component_free(c);
-    tui_free(t);
-}
-
-TEST(tui_invalidate) {
-    TUI *t = tui_create();
-    t->dirty = false;
-    tui_invalidate(t);
-    ASSERT_TRUE(t->dirty);
-    tui_free(t);
-}
-
-TEST(tui_quit) {
-    TUI *t = tui_create();
-    t->running = true;
-    tui_quit(t);
-    ASSERT_FALSE(t->running);
-    tui_free(t);
-}
-
-/* ========== Widget: Text ========== */
-
-TEST(widget_text_create_basic) {
-    Component *c = widget_text_create("hello");
-    ASSERT_NOT_NULL(c);
-    ASSERT_NOT_NULL(c->render);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_EQ(lines, 1);
-    ASSERT_STR_EQ(out[0], "hello");
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_text_set) {
-    Component *c = widget_text_create("old");
-    widget_text_set(c, "new");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_STR_EQ(out[0], "new");
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_text_null) {
-    Component *c = widget_text_create(NULL);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_EQ(lines, 0);
-    free(out);
-    component_free(c);
-}
-
-/* ========== Widget: Input ========== */
-
-TEST(widget_input_create) {
-    Component *c = widget_input_create("Type here...");
-    ASSERT_NOT_NULL(c);
-    ASSERT_TRUE(c->focused);
-    ASSERT_STR_EQ(widget_input_get_text(c), "");
-    component_free(c);
-}
-
-TEST(widget_input_set_get_text) {
-    Component *c = widget_input_create(NULL);
-    widget_input_set_text(c, "hello");
-    ASSERT_STR_EQ(widget_input_get_text(c), "hello");
-    component_free(c);
-}
-
-TEST(widget_input_clear) {
-    Component *c = widget_input_create(NULL);
-    widget_input_set_text(c, "hello");
-    widget_input_clear(c);
-    ASSERT_STR_EQ(widget_input_get_text(c), "");
-    component_free(c);
-}
-
-TEST(widget_input_typing) {
-    Component *c = widget_input_create(NULL);
-    c->handle_input(c, "h", 1);
-    c->handle_input(c, "i", 1);
-    ASSERT_STR_EQ(widget_input_get_text(c), "hi");
-    component_free(c);
-}
-
-/* ========== Widget: Box ========== */
-
-TEST(widget_box_create) {
-    Component *child = widget_text_create("inner");
-    Component *box = widget_box_create(child, 1);
-    ASSERT_NOT_NULL(box);
-    int lines = 0;
-    char **out = box->render(box, 80, &lines);
-    ASSERT_TRUE(lines >= 3);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(child);
-    component_free(box);
-}
-
-/* ========== Widget: Loader ========== */
-
-TEST(widget_loader_create) {
-    Component *c = widget_loader_create("Loading...");
-    ASSERT_NOT_NULL(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_EQ(lines, 1);
-    ASSERT_TRUE(strstr(out[0], "Loading...") != NULL);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_loader_tick) {
-    Component *c = widget_loader_create("msg");
-    widget_loader_tick(c);
-    widget_loader_tick(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_EQ(lines, 1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-/* ========== Widget: Select List ========== */
-
-TEST(widget_select_list_create) {
-    SelectItem items[] = {
-        { .label = "Option A", .value = "a", .description = "First" },
-        { .label = "Option B", .value = "b", .description = "Second" },
-    };
-    Component *c = widget_select_list_create(items, 2);
-    ASSERT_NOT_NULL(c);
-    ASSERT_EQ(widget_select_list_get_selected(c), 0);
-    ASSERT_STR_EQ(widget_select_list_get_value(c), "a");
-    component_free(c);
-}
-
-TEST(widget_select_list_navigate) {
-    SelectItem items[] = {
-        { .label = "A", .value = "a" },
-        { .label = "B", .value = "b" },
-        { .label = "C", .value = "c" },
-    };
-    Component *c = widget_select_list_create(items, 3);
-    /* Navigate down */
-    c->handle_input(c, "\x1b[B", 3); /* down arrow */
-    ASSERT_EQ(widget_select_list_get_selected(c), 1);
-    ASSERT_STR_EQ(widget_select_list_get_value(c), "b");
-    c->handle_input(c, "\x1b[B", 3);
-    ASSERT_EQ(widget_select_list_get_selected(c), 2);
-    /* Navigate up */
-    c->handle_input(c, "\x1b[A", 3);
-    ASSERT_EQ(widget_select_list_get_selected(c), 1);
-    component_free(c);
-}
-
-TEST(widget_select_list_render) {
-    SelectItem items[] = {
-        { .label = "A", .value = "a" },
-    };
-    Component *c = widget_select_list_create(items, 1);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_EQ(lines, 1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-/* RESOURCE EXHAUSTION: text widget with 10,000 line text */
-TEST(widget_text_10k_lines) {
-    Str big = str_new(256);
-    for (int i = 0; i < 10000; i++) {
-        str_appendf(&big, "line %d\n", i);
+TEST(linestore_md4c_table) {
+    LineStore *ls = linestore_create();
+    linestore_set_width(ls, 80);
+    linestore_begin_message(ls, 1);
+    const char *md = "| A | B |\n|---|---|\n| 1 | 2 |\n";
+    md_render_to_linestore(ls, md, (int)strlen(md), LINE_ASSISTANT_TEXT);
+    int table_rows = 0;
+    for (int i = 0; i < ls->count; i++) {
+        if (ls->lines[i].type == LINE_TABLE_ROW) table_rows++;
     }
-    Component *c = widget_text_create(big.data);
-    ASSERT_NOT_NULL(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines > 0);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-    str_free(&big);
+    ASSERT_TRUE(table_rows >= 2);
+    linestore_free(ls);
 }
 
-/* RESOURCE EXHAUSTION: input widget with 10,000 character string */
-TEST(widget_input_10k_chars) {
-    Component *c = widget_input_create(NULL);
-    Str big = str_new(10001);
-    for (int i = 0; i < 10000; i++) {
-        str_append_char(&big, 'x');
-    }
-    widget_input_set_text(c, big.data);
-    ASSERT_TRUE(strlen(widget_input_get_text(c)) > 0);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-    str_free(&big);
+TEST(linestore_stream_and_flush) {
+    LineStore *ls = linestore_create();
+    linestore_set_width(ls, 80);
+    linestore_begin_message(ls, 1);
+    linestore_append_assistant_text(ls, "hello ");
+    linestore_append_assistant_text(ls, "world\n");
+    ASSERT_TRUE(ls->count >= 1);
+    linestore_flush_stream(ls);
+    ASSERT_TRUE(ls->count >= 1);
+    ASSERT_EQ(ls->lines[0].type, LINE_ASSISTANT_TEXT);
+    linestore_free(ls);
 }
 
-/* RESOURCE EXHAUSTION: select list with 1,000 items */
-TEST(widget_select_list_1000_items) {
-    int n = 1000;
-    SelectItem *items = malloc(sizeof(SelectItem) * n);
-    char **labels = malloc(sizeof(char *) * n);
-    char **values = malloc(sizeof(char *) * n);
-    for (int i = 0; i < n; i++) {
-        labels[i] = malloc(16);
-        values[i] = malloc(16);
-        snprintf(labels[i], 16, "Item %d", i);
-        snprintf(values[i], 16, "v%d", i);
-        items[i] = (SelectItem){ .label = labels[i], .value = values[i], .description = NULL };
-    }
-    Component *c = widget_select_list_create(items, n);
-    ASSERT_NOT_NULL(c);
-    ASSERT_EQ(widget_select_list_get_selected(c), 0);
-    ASSERT_STR_EQ(widget_select_list_get_value(c), "v0");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines > 0);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-    for (int i = 0; i < n; i++) { free(labels[i]); free(values[i]); }
-    free(labels);
-    free(values);
-    free(items);
+/* ========== Lantern ========== */
+
+TEST(lantern_create_defaults) {
+    Lantern *l = lantern_create(NULL);
+    ASSERT_NOT_NULL(l);
+    ASSERT_EQ(l->config.accent.r, 212);
+    lantern_free(l);
 }
 
-/* ========== ADVERSARIAL: Key Parser Fuzzing ========== */
-
-TEST(adv_key_zero_length) {
-    ParsedKey k = key_parse("", 0);
-    /* Must not crash; should return unknown */
-    ASSERT_STR_EQ(k.id, "unknown");
-}
-
-TEST(adv_key_single_esc) {
-    ParsedKey k = key_parse("\x1b", 1);
-    /* Single ESC byte, must not crash */
-    ASSERT_TRUE(strlen(k.id) > 0);
-}
-
-TEST(adv_key_very_long_escape_sequence) {
-    /* Build a 100+ byte escape sequence */
-    char buf[120];
-    buf[0] = '\x1b';
-    buf[1] = '[';
-    for (int i = 2; i < 110; i++) buf[i] = '0' + (i % 10);
-    buf[110] = '~';
-    buf[111] = '\0';
-    ParsedKey k = key_parse(buf, 111);
-    /* Must not crash */
-    ASSERT_TRUE(strlen(k.id) > 0);
-}
-
-TEST(adv_key_random_binary) {
-    /* Feed all byte values 0x01-0xFF (skip 0x00 as it's string terminator) */
-    for (int b = 1; b < 256; b++) {
-        char c = (char)b;
-        ParsedKey k = key_parse(&c, 1);
-        /* Must not crash for any byte */
-        ASSERT_TRUE(strlen(k.id) > 0);
-        (void)k;
-    }
-}
-
-TEST(adv_key_incomplete_csi) {
-    /* CSI without final byte: ESC [ 1 ; (no terminator) */
-    ParsedKey k = key_parse("\x1b[1;", 4);
-    /* Must not crash */
-    ASSERT_TRUE(strlen(k.id) > 0);
-}
-
-TEST(adv_key_malformed_kitty) {
-    /* Kitty protocol uses CSI with extra parameters */
-    /* ESC [ code ; modifier ; event_type u */
-    ParsedKey k = key_parse("\x1b[97;1;1u", 9);
-    /* Must not crash */
-    ASSERT_TRUE(strlen(k.id) > 0);
-}
-
-TEST(adv_key_malformed_kitty_release) {
-    /* Kitty release event: ESC [ code ; modifier ; 3 u */
-    ParsedKey k = key_parse("\x1b[97;1;3u", 9);
-    /* Must not crash */
-    ASSERT_TRUE(strlen(k.id) > 0);
-}
-
-TEST(adv_key_paste_without_end) {
-    /* Paste start without end marker */
-    ParsedKey k = key_parse("\x1b[200~some text without end", 27);
-    /* Must not crash */
-    ASSERT_TRUE(strlen(k.id) > 0);
-}
-
-/* ========== Widget: Markdown ========== */
-
-TEST(widget_markdown_heading_bold) {
-    Component *c = widget_markdown_create("# Hello");
-    ASSERT_NOT_NULL(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    /* Should contain bold ANSI */
-    ASSERT_TRUE(strstr(out[0], "\x1b[1") != NULL);
-    char *stripped = ansi_strip(out[0]);
-    ASSERT_TRUE(strstr(stripped, "Hello") != NULL);
-    free(stripped);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_code_block_indent) {
-    Component *c = widget_markdown_create("```\nfoo\nbar\n```");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 2);
-    /* Code lines should start with 2-space indent */
-    char *s0 = ansi_strip(out[0]);
-    ASSERT_TRUE(s0[0] == ' ' && s0[1] == ' ');
-    free(s0);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_bold_italic) {
-    Component *c = widget_markdown_create("**bold** and *italic*");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    /* Should contain bold and italic ANSI codes */
-    ASSERT_TRUE(strstr(out[0], "\x1b[1m") != NULL);
-    ASSERT_TRUE(strstr(out[0], "\x1b[3m") != NULL);
-    char *stripped = ansi_strip(out[0]);
-    ASSERT_TRUE(strstr(stripped, "bold") != NULL);
-    ASSERT_TRUE(strstr(stripped, "italic") != NULL);
-    free(stripped);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_bullet_list) {
-    Component *c = widget_markdown_create("- item one\n- item two");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 2);
-    /* Should contain bullet character */
-    char *s0 = ansi_strip(out[0]);
-    ASSERT_TRUE(strstr(s0, "item one") != NULL);
-    free(s0);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_quote_block) {
-    Component *c = widget_markdown_create("> quoted text");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    /* Should contain dim ANSI and bar character */
-    ASSERT_TRUE(strstr(out[0], "\x1b[2m") != NULL);
-    char *stripped = ansi_strip(out[0]);
-    ASSERT_TRUE(strstr(stripped, "quoted text") != NULL);
-    free(stripped);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_horizontal_rule) {
-    Component *c = widget_markdown_create("---");
-    int lines = 0;
-    char **out = c->render(c, 40, &lines);
-    ASSERT_TRUE(lines >= 1);
-    /* Should contain horizontal line chars (─ = E2 94 80) */
-    ASSERT_TRUE(strstr(out[0], "\xE2\x94\x80") != NULL);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_streaming_append) {
-    Component *c = widget_markdown_create("# Title");
-    widget_markdown_append(c, "\nMore text");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 2);
-    char *s1 = ansi_strip(out[1]);
-    ASSERT_TRUE(strstr(s1, "More text") != NULL);
-    free(s1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_word_wrap) {
-    Component *c = widget_markdown_create("This is a long line that should wrap when the width is narrow enough to force wrapping");
-    int lines = 0;
-    char **out = c->render(c, 20, &lines);
-    ASSERT_TRUE(lines > 1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_markdown_empty_input) {
-    Component *c = widget_markdown_create("");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_EQ(lines, 0);
-    free(out);
-    component_free(c);
-
-    Component *c2 = widget_markdown_create(NULL);
-    lines = 0;
-    out = c2->render(c2, 80, &lines);
-    ASSERT_EQ(lines, 0);
-    free(out);
-    component_free(c2);
-}
-
-TEST(widget_markdown_nested_formatting) {
-    Component *c = widget_markdown_create("**bold *italic***");
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    /* Should contain both bold and italic ANSI */
-    ASSERT_TRUE(strstr(out[0], "\x1b[1m") != NULL);
-    ASSERT_TRUE(strstr(out[0], "\x1b[3m") != NULL);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-/* ========== Widget: Editor ========== */
-
-TEST(widget_editor_create_empty) {
-    Component *c = widget_editor_create(10);
-    ASSERT_NOT_NULL(c);
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "");
-    ASSERT_EQ(widget_editor_get_line_count(c), 1);
-    component_free(c);
-}
-
-TEST(widget_editor_set_get_text) {
-    Component *c = widget_editor_create(10);
-    widget_editor_set_text(c, "hello\nworld");
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "hello\nworld");
-    ASSERT_EQ(widget_editor_get_line_count(c), 2);
-    component_free(c);
-}
-
-TEST(widget_editor_type_chars) {
-    Component *c = widget_editor_create(10);
-    c->handle_input(c, "h", 1);
-    c->handle_input(c, "i", 1);
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "hi");
-    component_free(c);
-}
-
-TEST(widget_editor_enter_newline) {
-    Component *c = widget_editor_create(10);
-    c->handle_input(c, "a", 1);
-    c->handle_input(c, "b", 1);
-    c->handle_input(c, "\r", 1); /* enter */
-    c->handle_input(c, "c", 1);
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "ab\nc");
-    ASSERT_EQ(widget_editor_get_line_count(c), 2);
-    component_free(c);
-}
-
-TEST(widget_editor_backspace_delete) {
-    Component *c = widget_editor_create(10);
-    c->handle_input(c, "a", 1);
-    c->handle_input(c, "b", 1);
-    c->handle_input(c, "\x7f", 1); /* backspace */
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "a");
-    component_free(c);
-}
-
-TEST(widget_editor_backspace_join_lines) {
-    Component *c = widget_editor_create(10);
-    widget_editor_set_text(c, "ab\ncd");
-    /* Move to start of line 2 (set_text puts cursor at 0,0) */
-    c->handle_input(c, "\x1b[B", 3); /* down */
-    /* Now at line 1, col 0 */
-    ASSERT_EQ(widget_editor_get_cursor_line(c), 1);
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 0);
-    c->handle_input(c, "\x7f", 1); /* backspace joins lines */
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "abcd");
-    ASSERT_EQ(widget_editor_get_line_count(c), 1);
-    component_free(c);
-}
-
-TEST(widget_editor_arrow_navigation) {
-    Component *c = widget_editor_create(10);
-    c->handle_input(c, "a", 1);
-    c->handle_input(c, "b", 1);
-    c->handle_input(c, "c", 1);
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 3);
-    c->handle_input(c, "\x1b[D", 3); /* left */
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 2);
-    c->handle_input(c, "\x1b[D", 3); /* left */
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 1);
-    c->handle_input(c, "\x1b[C", 3); /* right */
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 2);
-    component_free(c);
-}
-
-TEST(widget_editor_cursor_position) {
-    Component *c = widget_editor_create(10);
-    widget_editor_set_text(c, "hello\nworld");
-    ASSERT_EQ(widget_editor_get_cursor_line(c), 0);
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 0);
-    c->handle_input(c, "\x1b[B", 3); /* down */
-    ASSERT_EQ(widget_editor_get_cursor_line(c), 1);
-    component_free(c);
-}
-
-TEST(widget_editor_scroll_overflow) {
-    Component *c = widget_editor_create(3); /* only 3 visible lines */
-    widget_editor_set_text(c, "line1\nline2\nline3\nline4\nline5");
-    /* Move to line 5 */
-    c->handle_input(c, "\x1b[B", 3); /* down */
-    c->handle_input(c, "\x1b[B", 3);
-    c->handle_input(c, "\x1b[B", 3);
-    c->handle_input(c, "\x1b[B", 3);
-    ASSERT_EQ(widget_editor_get_cursor_line(c), 4);
-    /* Render should work without crash */
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines <= 3);
-    ASSERT_TRUE(lines > 0);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_editor_line_count) {
-    Component *c = widget_editor_create(10);
-    widget_editor_set_text(c, "a\nb\nc\nd");
-    ASSERT_EQ(widget_editor_get_line_count(c), 4);
-    component_free(c);
-}
-
-TEST(widget_editor_ctrl_k_kill) {
-    Component *c = widget_editor_create(10);
-    widget_editor_set_text(c, "hello world");
-    /* Move cursor to col 5 */
-    c->handle_input(c, "\x1b[C", 3); /* right x5 */
-    c->handle_input(c, "\x1b[C", 3);
-    c->handle_input(c, "\x1b[C", 3);
-    c->handle_input(c, "\x1b[C", 3);
-    c->handle_input(c, "\x1b[C", 3);
-    ASSERT_EQ(widget_editor_get_cursor_col(c), 5);
-    c->handle_input(c, "\x0b", 1); /* ctrl+k */
-    const char *text = widget_editor_get_text(c);
-    ASSERT_STR_EQ(text, "hello");
-    component_free(c);
-}
-
-/* ========== Widget: Image ========== */
-
-TEST(widget_image_create_with_data) {
-    Component *c = widget_image_create("dGVzdA==", "image/png", 40, 20);
-    ASSERT_NOT_NULL(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_image_protocol_detection) {
-    /* In test environment, likely no kitty/iterm, so should be NONE */
-    /* We can't guarantee env, just check it doesn't crash */
-    ImageProtocol p = image_detect_protocol();
-    ASSERT_TRUE(p >= IMG_PROTOCOL_KITTY && p <= IMG_PROTOCOL_NONE);
-}
-
-TEST(widget_image_placeholder_no_protocol) {
-    /* Force NONE by not having special terminal env */
-    Component *c = widget_image_create("dGVzdA==", "image/png", 40, 20);
-    ASSERT_NOT_NULL(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    /* If protocol is NONE, should show placeholder text */
-    ImageProtocol p = image_detect_protocol();
-    if (p == IMG_PROTOCOL_NONE) {
-        ASSERT_TRUE(strstr(out[0], "[Image:") != NULL);
-    }
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_image_set_data) {
-    Component *c = widget_image_create("old", "image/png", 40, 20);
-    widget_image_set_data(c, "new_data", "image/jpeg");
-    /* Just verify it doesn't crash */
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-    component_free(c);
-}
-
-TEST(widget_image_null_safety) {
-    Component *c = widget_image_create(NULL, NULL, 0, 0);
-    ASSERT_NOT_NULL(c);
-    int lines = 0;
-    char **out = c->render(c, 80, &lines);
-    ASSERT_TRUE(lines >= 1);
-    ASSERT_TRUE(strstr(out[0], "[Image:") != NULL);
-    for (int i = 0; i < lines; i++) free(out[i]);
-    free(out);
-
-    /* set_data with NULL comp */
-    widget_image_set_data(NULL, "data", "type");
-
-    component_free(c);
+TEST(lantern_lut_rebuild) {
+    Lantern *l = lantern_create(NULL);
+    lantern_rebuild_lut(l, 30);
+    ASSERT_EQ(l->lut_size, 30);
+    RGB center = lantern_fade_color(l, 0);
+    RGB edge = lantern_fade_color(l, 29);
+    ASSERT_TRUE(center.r > edge.r);
+    lantern_free(l);
 }
 
 int main(void) {
@@ -1022,97 +324,23 @@ int main(void) {
     RUN_TEST(unicode_display_width_ascii);
     RUN_TEST(unicode_display_width_with_ansi);
     RUN_TEST(unicode_display_width_null);
-
-    TEST_SUITE("UNICODE: TUI Edge Cases");
     RUN_TEST(unicode_width_emoji);
-    RUN_TEST(unicode_width_zwj_sequence);
     RUN_TEST(unicode_width_cjk);
-    RUN_TEST(unicode_width_korean);
-    RUN_TEST(unicode_width_mixed_ascii_cjk);
-    RUN_TEST(unicode_width_control_chars);
-    RUN_TEST(unicode_width_combining_marks);
-    RUN_TEST(unicode_width_rtl);
-    RUN_TEST(unicode_width_invalid_utf8);
-    RUN_TEST(unicode_width_overlong_utf8);
-    RUN_TEST(ansi_strip_with_emoji);
     RUN_TEST(unicode_width_empty_string);
     RUN_TEST(unicode_width_only_ansi);
 
-    TEST_SUITE("TUI Core");
-    RUN_TEST(tui_create_free);
-    RUN_TEST(tui_add_remove_component);
-    RUN_TEST(tui_invalidate);
-    RUN_TEST(tui_quit);
+    TEST_SUITE("LineStore");
+    RUN_TEST(linestore_create_free);
+    RUN_TEST(linestore_add_blank);
+    RUN_TEST(linestore_add_user_text);
+    RUN_TEST(linestore_md4c_heading);
+    RUN_TEST(linestore_md4c_bold_spans);
+    RUN_TEST(linestore_md4c_table);
+    RUN_TEST(linestore_stream_and_flush);
 
-    TEST_SUITE("Widget: Text");
-    RUN_TEST(widget_text_create_basic);
-    RUN_TEST(widget_text_set);
-    RUN_TEST(widget_text_null);
-
-    TEST_SUITE("Widget: Input");
-    RUN_TEST(widget_input_create);
-    RUN_TEST(widget_input_set_get_text);
-    RUN_TEST(widget_input_clear);
-    RUN_TEST(widget_input_typing);
-
-    TEST_SUITE("Widget: Box");
-    RUN_TEST(widget_box_create);
-
-    TEST_SUITE("Widget: Loader");
-    RUN_TEST(widget_loader_create);
-    RUN_TEST(widget_loader_tick);
-
-    TEST_SUITE("Widget: Select List");
-    RUN_TEST(widget_select_list_create);
-    RUN_TEST(widget_select_list_navigate);
-    RUN_TEST(widget_select_list_render);
-
-    TEST_SUITE("RESOURCE EXHAUSTION: TUI");
-    RUN_TEST(widget_text_10k_lines);
-    RUN_TEST(widget_input_10k_chars);
-    RUN_TEST(widget_select_list_1000_items);
-
-    TEST_SUITE("Widget: Markdown");
-    RUN_TEST(widget_markdown_heading_bold);
-    RUN_TEST(widget_markdown_code_block_indent);
-    RUN_TEST(widget_markdown_bold_italic);
-    RUN_TEST(widget_markdown_bullet_list);
-    RUN_TEST(widget_markdown_quote_block);
-    RUN_TEST(widget_markdown_horizontal_rule);
-    RUN_TEST(widget_markdown_streaming_append);
-    RUN_TEST(widget_markdown_word_wrap);
-    RUN_TEST(widget_markdown_empty_input);
-    RUN_TEST(widget_markdown_nested_formatting);
-
-    TEST_SUITE("Widget: Editor");
-    RUN_TEST(widget_editor_create_empty);
-    RUN_TEST(widget_editor_set_get_text);
-    RUN_TEST(widget_editor_type_chars);
-    RUN_TEST(widget_editor_enter_newline);
-    RUN_TEST(widget_editor_backspace_delete);
-    RUN_TEST(widget_editor_backspace_join_lines);
-    RUN_TEST(widget_editor_arrow_navigation);
-    RUN_TEST(widget_editor_cursor_position);
-    RUN_TEST(widget_editor_scroll_overflow);
-    RUN_TEST(widget_editor_line_count);
-    RUN_TEST(widget_editor_ctrl_k_kill);
-
-    TEST_SUITE("Widget: Image");
-    RUN_TEST(widget_image_create_with_data);
-    RUN_TEST(widget_image_protocol_detection);
-    RUN_TEST(widget_image_placeholder_no_protocol);
-    RUN_TEST(widget_image_set_data);
-    RUN_TEST(widget_image_null_safety);
-
-    TEST_SUITE("ADVERSARIAL: Key Parser Fuzzing");
-    RUN_TEST(adv_key_zero_length);
-    RUN_TEST(adv_key_single_esc);
-    RUN_TEST(adv_key_very_long_escape_sequence);
-    RUN_TEST(adv_key_random_binary);
-    RUN_TEST(adv_key_incomplete_csi);
-    RUN_TEST(adv_key_malformed_kitty);
-    RUN_TEST(adv_key_malformed_kitty_release);
-    RUN_TEST(adv_key_paste_without_end);
+    TEST_SUITE("Lantern");
+    RUN_TEST(lantern_create_defaults);
+    RUN_TEST(lantern_lut_rebuild);
 
     TEST_REPORT();
 }

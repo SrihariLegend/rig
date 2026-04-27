@@ -16,15 +16,9 @@
 #include "harness/workflow/workflow.h"
 #include "harness/workflow/expr.h"
 #include "harness/modes/rpc.h"
-#include "tui/tui.h"
 #include "tui/terminal.h"
 #include "tui/keys.h"
 #include "tui/ansi.h"
-#include "tui/widgets/text.h"
-#include "tui/widgets/input.h"
-#include "tui/widgets/box.h"
-#include "tui/widgets/loader.h"
-#include "tui/widgets/select_list.h"
 #include "util/arena.h"
 #include "util/str.h"
 #include "util/vec.h"
@@ -43,7 +37,6 @@ typedef struct PiInstance {
     PiExtensionAPI *api;
     AgentState *agent;
     Session *session;
-    TUI *tui;
     RPCServer *rpc;
     bool initialized;
 } PiInstance;

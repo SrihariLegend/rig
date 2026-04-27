@@ -352,16 +352,24 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         lantern_renderer_scroll_down(state->renderer, state->renderer->term_height - 2);
         return true;
     }
+    if (key_matches(key, "ctrl+u")) {
+        lantern_renderer_scroll_up(state->renderer, state->renderer->term_height / 2);
+        return true;
+    }
+    if (key_matches(key, "ctrl+d")) {
+        lantern_renderer_scroll_down(state->renderer, state->renderer->term_height / 2);
+        return true;
+    }
     if (key_matches(key, "end")) {
         lantern_renderer_scroll_to_bottom(state->renderer);
         return true;
     }
     if (key_matches(key, "up") || key_matches(key, "shift+up")) {
-        lantern_renderer_scroll_up(state->renderer, 1);
+        lantern_renderer_scroll_up(state->renderer, 3);
         return true;
     }
     if (key_matches(key, "down") || key_matches(key, "shift+down")) {
-        lantern_renderer_scroll_down(state->renderer, 1);
+        lantern_renderer_scroll_down(state->renderer, 3);
         return true;
     }
     if (key_matches(key, "enter")) {
