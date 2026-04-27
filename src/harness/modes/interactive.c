@@ -9,6 +9,7 @@
 #include "ai/providers/mistral.h"
 #include "util/log.h"
 #include "harness/turnlog.h"
+#include "harness/settings.h"
 #include "tui/lantern.h"
 #include "tui/linestore.h"
 #include "tui/lantern_render.h"
@@ -64,6 +65,13 @@ typedef struct {
     char cwd[4096];
     char *api_key;
     TurnLog *turnlog;
+
+    /* Input history */
+    char **history;
+    int history_count;
+    int history_cap;
+    int history_pos;        /* -1 = editing new input, 0..count-1 = browsing */
+    char *history_stash;    /* saves in-progress input when browsing */
 } InteractiveState;
 
 /* ---- Forward Decls ---- */
@@ -118,6 +126,324 @@ static void input_clear(InteractiveState *state) {
 static void sync_input_to_renderer(InteractiveState *state) {
     lantern_renderer_set_input(state->renderer, state->input_buf, state->input_cursor);
     state->needs_render = true;
+}
+
+/* ---- Input History ---- */
+
+static void history_init(InteractiveState *state) {
+    state->history_cap = 64;
+    state->history = calloc(state->history_cap, sizeof(char *));
+    state->history_count = 0;
+    state->history_pos = -1;
+    state->history_stash = NULL;
+}
+
+static void history_push(InteractiveState *state, const char *text) {
+    if (!text || !text[0]) return;
+
+    /* Skip duplicate of last entry */
+    if (state->history_count > 0 &&
+        strcmp(state->history[state->history_count - 1], text) == 0) return;
+
+    if (state->history_count >= state->history_cap) {
+        int new_cap = state->history_cap * 2;
+        char **nh = realloc(state->history, (size_t)new_cap * sizeof(char *));
+        if (!nh) return;
+        state->history = nh;
+        state->history_cap = new_cap;
+    }
+
+    state->history[state->history_count++] = strdup(text);
+    state->history_pos = -1;
+    free(state->history_stash);
+    state->history_stash = NULL;
+}
+
+static void history_free(InteractiveState *state) {
+    for (int i = 0; i < state->history_count; i++) {
+        free(state->history[i]);
+    }
+    free(state->history);
+    free(state->history_stash);
+}
+
+static void history_set_input(InteractiveState *state, const char *text) {
+    input_clear(state);
+    if (text && text[0]) {
+        input_insert(state, text, (int)strlen(text));
+    }
+    sync_input_to_renderer(state);
+    state->needs_render = true;
+}
+
+static void history_up(InteractiveState *state) {
+    if (state->history_count == 0) return;
+
+    if (state->history_pos == -1) {
+        /* Stash current input */
+        free(state->history_stash);
+        state->history_stash = strdup(state->input_buf);
+        state->history_pos = state->history_count - 1;
+    } else if (state->history_pos > 0) {
+        state->history_pos--;
+    } else {
+        return;
+    }
+
+    history_set_input(state, state->history[state->history_pos]);
+}
+
+static void history_down(InteractiveState *state) {
+    if (state->history_pos == -1) return;
+
+    if (state->history_pos < state->history_count - 1) {
+        state->history_pos++;
+        history_set_input(state, state->history[state->history_pos]);
+    } else {
+        /* Restore stashed input */
+        state->history_pos = -1;
+        history_set_input(state, state->history_stash);
+        free(state->history_stash);
+        state->history_stash = NULL;
+    }
+}
+
+/* ---- Startup Splash ---- */
+
+static int splash_vis_width(const char *s) {
+    int w = 0;
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        if (*p < 0x80) { w++; p++; }
+        else if (*p < 0xE0) { w++; p += 2; }
+        else if (*p < 0xF0) { w++; p += 3; }
+        else { w += 2; p += 4; }
+    }
+    return w;
+}
+
+static void show_splash(InteractiveState *state) {
+    /* Sail: each char tagged with layer 0=outer, 1=mid, 2=inner, 3=mast */
+    /* We render char-by-char with different brightness per layer */
+
+    typedef struct { const char *text; const char *layers; } SailLine;
+
+    /*  Layer key: O=outer edge, M=mid sail, I=inner sail, m=mast/base, .=space */
+    static const SailLine sail[] = {
+        { "\xe2\x96\xb2",                                                                                                       "O" },
+        { "\xe2\x95\xb1   \xe2\x95\xb2",                                                                                       "O...O" },
+        { "\xe2\x95\xb1       \xe2\x95\xb2",                                                                                   "O.......O" },
+        { "\xe2\x95\xb1    \xe2\x94\x82    \xe2\x95\xb2",                                                                       "O....m....O" },
+        { "\xe2\x95\xb1    \xe2\x95\xb1 \xe2\x94\x82 \xe2\x95\xb2    \xe2\x95\xb2",                                               "O....M.m.M....O" },
+        { "\xe2\x95\xb1  \xe2\x95\xb1    \xe2\x94\x82    \xe2\x95\xb2  \xe2\x95\xb2",                                               "O..M....m....M..O" },
+        { "\xe2\x95\xb1      \xe2\x95\xb1 \xe2\x94\x82 \xe2\x95\xb2      \xe2\x95\xb2",                                           "O......I.m.I......O" },
+        { "\xe2\x95\xb1 \xe2\x95\xb1   \xe2\x95\xb1   \xe2\x94\x82   \xe2\x95\xb2   \xe2\x95\xb2 \xe2\x95\xb2",                   "O.M...I...m...I...M.O" },
+        { "\xe2\x95\xb1    \xe2\x95\xb1   \xe2\x95\xb1  \xe2\x94\x82  \xe2\x95\xb2   \xe2\x95\xb2    \xe2\x95\xb2",               "O....M...I..m..I...M....O" },
+        { "\xe2\x95\xb1  \xe2\x95\xb1    \xe2\x95\xb1    \xe2\x94\x82    \xe2\x95\xb2    \xe2\x95\xb2  \xe2\x95\xb2",               "O..M....I....m....I....M..O" },
+        { "\xe2\x95\xb1    \xe2\x95\xb1 \xe2\x95\xb1   \xe2\x95\xb1  \xe2\x94\x82  \xe2\x95\xb2   \xe2\x95\xb2 \xe2\x95\xb2    \xe2\x95\xb2", "O....M.I...I..m..I...I.M....O" },
+        { "\xe2\x95\xb1 \xe2\x95\xb1   \xe2\x95\xb1  \xe2\x95\xb1   \xe2\x95\xb1 \xe2\x94\x82 \xe2\x95\xb2   \xe2\x95\xb2  \xe2\x95\xb2   \xe2\x95\xb2 \xe2\x95\xb2", "O.M...I..I...I.m.I...I..I...M.O" },
+        { "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xbc\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80", NULL },
+        { "\xe2\x94\x82",                                                                                                       NULL },
+        { "\xe2\x94\x80\xe2\x94\x80\xe2\x94\xb4\xe2\x94\x80\xe2\x94\x80",                                                       NULL },
+    };
+
+    static const char *logo[] = {
+        "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  \xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97",
+        "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d",
+        "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x9d \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91  \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97",
+        "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91   \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91",
+        "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x91  \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 \xe2\x95\x9a\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x9d",
+        "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d",
+    };
+
+    int tw = state->renderer->term_width;
+    int th = state->renderer->term_height;
+    RGB accent = state->lantern->config.accent;
+    bool use_color = (state->lantern->tier == COLOR_TRUECOLOR || state->lantern->tier == COLOR_256);
+
+    /* Brightness multipliers per layer */
+    float bright_outer = 1.0f;
+    float bright_mid   = 0.55f;
+    float bright_inner = 0.30f;
+    float bright_mast  = 0.70f;
+    float bright_base  = 0.50f;
+    float bright_logo  = 0.85f;
+    float bright_info  = 0.35f;
+
+    Str out = str_new(4096);
+
+    /* Clear screen, hide cursor */
+    str_append(&out, "\x1b[2J\x1b[H\x1b[?25l");
+
+    /* Calculate vertical centering */
+    int total_lines = 2 + 15 + 2 + 6 + 1 + 2 + 2;  /* blanks + sail + blanks + logo + blank + info + blanks */
+    int y_start = (th - total_lines) / 2;
+    if (y_start < 1) y_start = 1;
+
+    int row = y_start;
+
+    /* Helper macro for colored centered line */
+    #define SPLASH_LINE_COLOR(text, brightness) do { \
+        int vw = splash_vis_width(text); \
+        int pad = (tw - vw) / 2; \
+        if (pad < 0) pad = 0; \
+        str_appendf(&out, "\x1b[%d;1H", row++); \
+        for (int _p = 0; _p < pad; _p++) str_append_char(&out, ' '); \
+        if (use_color) { \
+            uint8_t _r = (uint8_t)(accent.r * (brightness)); \
+            uint8_t _g = (uint8_t)(accent.g * (brightness)); \
+            uint8_t _b = (uint8_t)(accent.b * (brightness)); \
+            str_appendf(&out, "\x1b[38;2;%d;%d;%dm", _r, _g, _b); \
+        } \
+        str_append(&out, text); \
+        if (use_color) str_append(&out, "\x1b[0m"); \
+    } while(0)
+
+    /* Blank lines */
+    row += 2;
+
+    /* Sail lines — char-by-char coloring for layered lines */
+    for (int i = 0; i < 15; i++) {
+        const char *text = sail[i].text;
+        const char *layers = sail[i].layers;
+
+        if (!layers) {
+            /* Base/mast lines — single color */
+            SPLASH_LINE_COLOR(text, bright_base);
+            continue;
+        }
+
+        int vw = splash_vis_width(text);
+        int pad = (tw - vw) / 2;
+        if (pad < 0) pad = 0;
+        str_appendf(&out, "\x1b[%d;1H", row++);
+        for (int p = 0; p < pad; p++) str_append_char(&out, ' ');
+
+        /* Walk text and layers in parallel */
+        const unsigned char *tp = (const unsigned char *)text;
+        int li = 0;
+        while (*tp && layers[li]) {
+            float br;
+            switch (layers[li]) {
+                case 'O': br = bright_outer; break;
+                case 'M': br = bright_mid;   break;
+                case 'I': br = bright_inner; break;
+                case 'm': br = bright_mast;  break;
+                default:  br = 0.0f;         break;
+            }
+
+            /* Determine char byte length */
+            int clen = 1;
+            if (*tp >= 0xF0) clen = 4;
+            else if (*tp >= 0xE0) clen = 3;
+            else if (*tp >= 0xC0) clen = 2;
+
+            if (layers[li] == '.') {
+                str_append_char(&out, ' ');
+            } else if (use_color) {
+                uint8_t r = (uint8_t)(accent.r * br);
+                uint8_t g = (uint8_t)(accent.g * br);
+                uint8_t b = (uint8_t)(accent.b * br);
+                str_appendf(&out, "\x1b[38;2;%d;%d;%dm", r, g, b);
+                str_append_len(&out, (const char *)tp, clen);
+                str_append(&out, "\x1b[0m");
+            } else {
+                str_append_len(&out, (const char *)tp, clen);
+            }
+
+            tp += clen;
+            li++;
+        }
+    }
+
+    /* Blank lines */
+    row += 2;
+
+    /* Logo */
+    for (int i = 0; i < 6; i++) {
+        SPLASH_LINE_COLOR(logo[i], bright_logo);
+    }
+
+    /* Blank */
+    row++;
+
+    /* Info lines */
+    if (state->model) {
+        char info[256];
+        snprintf(info, sizeof(info), "%s  \xc2\xb7  v%s", state->model->name, RIG_VERSION);
+        SPLASH_LINE_COLOR(info, bright_info);
+    } else {
+        char info[128];
+        snprintf(info, sizeof(info), "v%s", RIG_VERSION);
+        SPLASH_LINE_COLOR(info, bright_info);
+    }
+    SPLASH_LINE_COLOR("/help for commands", bright_info);
+
+    #undef SPLASH_LINE_COLOR
+
+    /* Write it all at once */
+    write(STDOUT_FILENO, out.data, out.len);
+    str_free(&out);
+
+    /* Wait for keypress or 3 seconds, then transition to normal TUI */
+    struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+    poll(&pfd, 1, 3000);
+    if (pfd.revents & POLLIN) {
+        char discard[64];
+        read(STDIN_FILENO, discard, sizeof(discard));
+    }
+
+    /* Add blank lines to linestore so scroll position is correct */
+    int splash_rows = row - y_start + 2;
+    (void)splash_rows;
+    linestore_add_blank(state->store);
+}
+
+/* ---- Session Restore ---- */
+
+static int restore_session(InteractiveState *state) {
+    if (!state->session || state->session->entry_count == 0) return 0;
+
+    int restored = 0;
+    for (int i = 0; i < state->session->entry_count; i++) {
+        SessionEntry *e = &state->session->entries[i];
+        if (e->type != ENTRY_MESSAGE || !e->data) continue;
+
+        cJSON *role_j = cJSON_GetObjectItem(e->data, "role");
+        cJSON *text_j = cJSON_GetObjectItem(e->data, "text");
+        if (!role_j || !cJSON_IsString(role_j)) continue;
+        if (!text_j || !cJSON_IsString(text_j)) continue;
+
+        const char *role = role_j->valuestring;
+        const char *text = text_j->valuestring;
+
+        if (strcmp(role, "user") == 0) {
+            Message *msg = message_create_user(text);
+            if (msg) {
+                agent_state_add_message(state->agent, msg);
+                linestore_add_user_text(state->store, text);
+                linestore_add_blank(state->store);
+                history_push(state, text);
+                restored++;
+            }
+        } else if (strcmp(role, "assistant") == 0) {
+            Message *msg = message_create_assistant();
+            if (msg) {
+                message_add_content(msg, content_text(text, NULL));
+                agent_state_add_message(state->agent, msg);
+                state->msg_counter++;
+                linestore_begin_message(state->store, state->msg_counter);
+                linestore_append_assistant_text(state->store, text);
+                linestore_flush_stream(state->store);
+                linestore_add_blank(state->store);
+                restored++;
+            }
+        }
+    }
+    if (restored > 0) {
+        LOG_INFO("session restore: replayed %d messages", restored);
+    }
+    return restored;
 }
 
 /* ---- Agent Events ---- */
@@ -257,6 +583,10 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
             pthread_mutex_lock(&state->mutex);
             linestore_add_tool_done(state->store, event->tool_name);
             lantern_renderer_set_breathing(state->renderer, false, NULL);
+            if (state->turnlog && turnlog_budget_exceeded(state->turnlog) && !state->turnlog->budget_warned) {
+                state->turnlog->budget_warned = true;
+                linestore_add_system(state->store, "snapshot budget exceeded — file undo disabled for remaining turns");
+            }
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
         }
@@ -297,6 +627,9 @@ InteractiveState *g_interactive_state = NULL;
 
 static void handle_submit(InteractiveState *state) {
     if (state->input_len == 0) return;
+
+    history_push(state, state->input_buf);
+
     if (!state->model || !state->api_key) {
         pthread_mutex_lock(&state->mutex);
         linestore_add_error(state->store, "no API key configured");
@@ -556,40 +889,47 @@ static bool handle_slash_command(InteractiveState *state) {
         cmd_output(state, buf);
 
         if (turn->snapshot_count > 0) {
+            int delete_count = 0;
             for (int i = 0; i < turn->snapshot_count; i++) {
-                snprintf(buf, sizeof(buf), "  revert %s%s",
-                         turn->snapshots[i].file_path,
-                         turn->snapshots[i].was_created ? " (delete)" : "");
+                bool is_delete = turn->snapshots[i].was_created;
+                if (is_delete) delete_count++;
+                snprintf(buf, sizeof(buf), "  %s %s",
+                         is_delete ? "delete" : "revert",
+                         turn->snapshots[i].file_path);
                 cmd_output(state, buf);
             }
-            cmd_output(state, "confirm? y/n");
-            state->needs_render = true;
-            pthread_mutex_unlock(&state->mutex);
 
-            /* Wait for y/n — poll for single keypress */
-            struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
-            bool confirmed = false;
-            while (1) {
-                int ready = poll(&pfd, 1, 100);
-                if (ready > 0) {
-                    char ch[16];
-                    ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
-                    if (n > 0) {
-                        if (ch[0] == 'y' || ch[0] == 'Y') { confirmed = true; break; }
-                        if (ch[0] == 'n' || ch[0] == 'N' || ch[0] == '\x1b' || ch[0] == '\x03') break;
+            /* Only require confirmation when files will be deleted */
+            if (delete_count > 0) {
+                snprintf(buf, sizeof(buf), "%d file%s will be deleted. confirm? y/n",
+                         delete_count, delete_count == 1 ? "" : "s");
+                cmd_output(state, buf);
+                state->needs_render = true;
+                pthread_mutex_unlock(&state->mutex);
+
+                struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+                bool confirmed = false;
+                while (1) {
+                    int ready = poll(&pfd, 1, 100);
+                    if (ready > 0) {
+                        char ch[16];
+                        ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
+                        if (n > 0) {
+                            if (ch[0] == 'y' || ch[0] == 'Y') { confirmed = true; break; }
+                            if (ch[0] == 'n' || ch[0] == 'N' || ch[0] == '\x1b' || ch[0] == '\x03') break;
+                        }
                     }
+                }
+
+                pthread_mutex_lock(&state->mutex);
+                if (!confirmed) {
+                    cmd_output(state, "cancelled");
+                    cmd_finish(state);
+                    return true;
                 }
             }
 
-            pthread_mutex_lock(&state->mutex);
-            if (!confirmed) {
-                cmd_output(state, "cancelled");
-                cmd_finish(state);
-                return true;
-            }
-
-            /* Restore files */
-            int restored = turnlog_restore_turn(turn);
+            int restored = turnlog_restore_turn(state->turnlog, turn);
             snprintf(buf, sizeof(buf), "reverted %d file%s", restored, restored == 1 ? "" : "s");
             cmd_output(state, buf);
         }
@@ -685,6 +1025,79 @@ static bool handle_slash_command(InteractiveState *state) {
         cmd_output(state, buf);
         snprintf(buf, sizeof(buf), "display lines: %d", state->store->count);
         cmd_output(state, buf);
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /session <id> — switch to a session */
+    if (strcmp(cmd, "session") == 0) {
+        if (!arg) {
+            pthread_mutex_lock(&state->mutex);
+            if (state->session) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "current session: %s",
+                         state->session->session_id ? state->session->session_id : "none");
+                cmd_output(state, buf);
+            }
+            cmd_output(state, "usage: /session <id>");
+            cmd_finish(state);
+            return true;
+        }
+
+        const char *dir = config_sessions_dir();
+        if (!dir) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "no sessions directory");
+            cmd_finish(state);
+            return true;
+        }
+
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s.jsonl", dir, arg);
+        if (!fs_exists(path)) {
+            pthread_mutex_lock(&state->mutex);
+            char buf[256];
+            snprintf(buf, sizeof(buf), "session not found: %s", arg);
+            cmd_output(state, buf);
+            cmd_finish(state);
+            return true;
+        }
+
+        Session *new_session = session_load(path);
+        if (!new_session) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "failed to load session");
+            cmd_finish(state);
+            return true;
+        }
+
+        pthread_mutex_lock(&state->mutex);
+
+        /* Clear agent context */
+        agent_state_reset(state->agent);
+        state->total_tokens = 0;
+
+        /* Clear linestore */
+        linestore_clear(state->store);
+
+        /* Swap session */
+        session_free(state->session);
+        state->session = new_session;
+
+        /* Replay messages */
+        int restored = restore_session(state);
+
+        char buf[256];
+        snprintf(buf, sizeof(buf), "loaded session %s (%d messages)",
+                 new_session->session_id, restored);
+        cmd_output(state, buf);
+
+        /* Reset scroll to bottom */
+        state->renderer->auto_scroll = true;
+        int total = linestore_screen_row_count(state->store);
+        int vp = state->renderer->term_height - 1;
+        state->renderer->scroll_offset = total > vp ? total - vp : 0;
+
         cmd_finish(state);
         return true;
     }
@@ -800,6 +1213,7 @@ static bool handle_slash_command(InteractiveState *state) {
             cmd_output(state, "/diff        — git diff --stat");
             cmd_output(state, "/undo        — remove last exchange");
             cmd_output(state, "/context     — show context window usage");
+            cmd_output(state, "/session <id> — load a saved session");
             cmd_output(state, "/sessions    — list saved sessions");
             cmd_output(state, "/fork        — fork to new session");
             cmd_output(state, "/theme <name> — switch color theme");
@@ -831,6 +1245,9 @@ static bool handle_slash_command(InteractiveState *state) {
         } else if (strcmp(arg, "context") == 0) {
             cmd_output(state, "/context       — show context window state");
             cmd_output(state, "messages in context, tokens used, window size, tool count");
+        } else if (strcmp(arg, "session") == 0) {
+            cmd_output(state, "/session       — show current session ID");
+            cmd_output(state, "/session <id>  — switch to saved session (clears context, replays history)");
         } else if (strcmp(arg, "sessions") == 0) {
             cmd_output(state, "/sessions      — list recent session files");
             cmd_output(state, "shows up to 20 most recent sessions");
@@ -889,17 +1306,34 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         lantern_renderer_scroll_to_bottom(state->renderer);
         return true;
     }
-    if (key_matches(key, "up") || key_matches(key, "shift+up")) {
+    if (key_matches(key, "shift+up")) {
         lantern_renderer_scroll_up(state->renderer, 3);
         return true;
     }
-    if (key_matches(key, "down") || key_matches(key, "shift+down")) {
+    if (key_matches(key, "shift+down")) {
         lantern_renderer_scroll_down(state->renderer, 3);
+        return true;
+    }
+    if (key_matches(key, "up")) {
+        if (state->phase == ISTATE_IDLE) {
+            history_up(state);
+        } else {
+            lantern_renderer_scroll_up(state->renderer, 3);
+        }
+        return true;
+    }
+    if (key_matches(key, "down")) {
+        if (state->phase == ISTATE_IDLE) {
+            history_down(state);
+        } else {
+            lantern_renderer_scroll_down(state->renderer, 3);
+        }
         return true;
     }
     if (key_matches(key, "enter")) {
         if (state->phase == ISTATE_IDLE) {
             if (state->input_len > 0 && state->input_buf[0] == '/') {
+                history_push(state, state->input_buf);
                 handle_slash_command(state);
             } else {
                 handle_submit(state);
@@ -1076,6 +1510,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     pthread_mutex_init(&state->mutex, NULL);
 
     input_init(state);
+    history_init(state);
 
     /* Agent */
     state->agent = agent_state_create();
@@ -1106,7 +1541,27 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
         .before_tool_call = before_tool,
     };
 
-    state->turnlog = turnlog_create(0);
+    const char *proj_dir = config_project_dir();
+
+    /* Read snapshot budget from settings */
+    SettingsManager *sm = settings_create(
+        config_settings_global_path(), config_settings_project_path());
+    size_t snap_max = (size_t)settings_get_int(sm, "snapshots.max_mb", 64) * 1024 * 1024;
+    size_t file_max = (size_t)settings_get_int(sm, "snapshots.file_max_mb", 1) * 1024 * 1024;
+    settings_free(sm);
+
+    state->turnlog = turnlog_create(proj_dir, snap_max);
+    if (state->turnlog && file_max > 0) {
+        state->turnlog->file_max_bytes = file_max;
+    }
+
+    /* Scan persisted snapshots (metadata only, no data loaded) */
+    if (proj_dir && fs_is_dir(proj_dir)) {
+        int scanned = turnlog_scan(state->turnlog);
+        if (scanned > 0) {
+            LOG_INFO("scanned %d turn snapshots from %s", scanned, proj_dir);
+        }
+    }
 
     /* Lantern */
     state->lantern = lantern_create(NULL);
@@ -1128,11 +1583,42 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
         state->session = session_create(sessions_dir);
     }
 
+    /* Restore session if loading existing one */
+    if (session_id) {
+        restore_session(state);
+    }
+
     /* Terminal setup */
     if (!isatty(STDIN_FILENO)) {
         fprintf(stderr, "Error: Interactive mode requires a terminal.\n");
         free(state);
         return -1;
+    }
+
+    /* Trust gate — ask before creating .rig/ in a new directory */
+    if (proj_dir && !fs_exists(proj_dir)) {
+        fprintf(stderr, "rig: first run in %s\n", state->cwd);
+        fprintf(stderr, "trust this directory? [y/N] ");
+        fflush(stderr);
+        char answer[16] = {0};
+        if (fgets(answer, sizeof(answer), stdin)) {
+            if (answer[0] != 'y' && answer[0] != 'Y') {
+                fprintf(stderr, "aborted\n");
+                free(state->input_buf);
+                free(state->api_key);
+                if (state->agent) agent_state_free(state->agent);
+                if (state->session) session_free(state->session);
+                turnlog_free(state->turnlog);
+                lantern_renderer_free(state->renderer);
+                linestore_free(state->store);
+                lantern_free(state->lantern);
+                pthread_mutex_destroy(&state->mutex);
+                free(state);
+                return 1;
+            }
+        }
+        fs_mkdir_p(proj_dir);
+        LOG_INFO("created project directory: %s", proj_dir);
     }
 
     struct sigaction sa;
@@ -1151,8 +1637,8 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     terminal_get_size(&tw, &th);
     lantern_renderer_resize(state->renderer, tw, th);
 
-    /* Startup content */
-    linestore_add_blank(state->store);
+    /* Startup splash */
+    show_splash(state);
 
     if (!model || !api_key) {
         linestore_add_error(state->store, "no API key configured");
@@ -1218,10 +1704,15 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     if (state->agent) agent_state_free(state->agent);
     if (state->session) session_free(state->session);
     pthread_mutex_destroy(&state->mutex);
+    history_free(state);
     free(state->input_buf);
     free(state->api_key);
     free(state->last_prompt);
-    if (state->turnlog) turnlog_free(state->turnlog);
+    /* Flush any in-memory turn to disk before exit */
+    if (state->turnlog) {
+        turnlog_flush(state->turnlog);
+        turnlog_free(state->turnlog);
+    }
     free(state);
 
     ai_registry_cleanup();

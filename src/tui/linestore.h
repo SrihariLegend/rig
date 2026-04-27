@@ -72,6 +72,7 @@ typedef struct {
 
 LineStore *linestore_create(void);
 void linestore_free(LineStore *ls);
+void linestore_clear(LineStore *ls);
 
 void linestore_set_width(LineStore *ls, int content_width);
 void linestore_reflow(LineStore *ls);

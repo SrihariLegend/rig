@@ -72,6 +72,22 @@ void linestore_free(LineStore *ls) {
     free(ls);
 }
 
+void linestore_clear(LineStore *ls) {
+    if (!ls) return;
+    for (int i = 0; i < ls->count; i++) {
+        free(ls->lines[i].raw_text);
+        free(ls->lines[i].spans);
+    }
+    ls->count = 0;
+    ls->total_screen_rows = 0;
+    ls->current_msg = 0;
+    ls->in_code_block = false;
+    ls->stream_len = 0;
+    ls->stream_start_idx = 0;
+    ls->stream_start_rows = 0;
+    ls->needs_scroll_reset = false;
+}
+
 static StoreLine *linestore_alloc_line(LineStore *ls) {
     if (ls->count >= ls->capacity) {
         int new_cap = ls->capacity * 2;

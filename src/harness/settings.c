@@ -33,6 +33,12 @@ static cJSON *settings_make_defaults(void) {
         cJSON_AddBoolToObject(terminal, "show_images", 1);
     }
 
+    cJSON *snapshots = cJSON_AddObjectToObject(d, "snapshots");
+    if (snapshots) {
+        cJSON_AddNumberToObject(snapshots, "max_mb", 64);
+        cJSON_AddNumberToObject(snapshots, "file_max_mb", 1);
+    }
+
     return d;
 }
 

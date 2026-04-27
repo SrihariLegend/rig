@@ -12,6 +12,7 @@ static char project_settings[PATH_MAX] = {0};
 static char auth_path[PATH_MAX] = {0};
 static char models_path_buf[PATH_MAX] = {0};
 static char sessions_dir[PATH_MAX] = {0};
+static char project_dir[PATH_MAX] = {0};
 
 const char *config_agent_dir(void) {
     if (!agent_dir[0]) {
@@ -60,6 +61,16 @@ const char *config_sessions_dir(void) {
         snprintf(sessions_dir, PATH_MAX, "%s/sessions", config_agent_dir());
     }
     return sessions_dir;
+}
+
+const char *config_project_dir(void) {
+    if (!project_dir[0]) {
+        char cwd[PATH_MAX];
+        if (getcwd(cwd, sizeof(cwd))) {
+            snprintf(project_dir, PATH_MAX, "%s/.rig", cwd);
+        }
+    }
+    return project_dir;
 }
 
 char *config_find_project_root(void) {
