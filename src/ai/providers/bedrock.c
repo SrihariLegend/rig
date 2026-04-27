@@ -193,7 +193,7 @@ static cJSON *build_body(const Model *model, const Message *messages, int msg_co
                     cJSON_AddItemToArray(tr_content, text_block);
                     cJSON_AddItemToObject(block, "content", tr_content);
                     if (messages[i].is_error) {
-                        cJSON_AddStringToObject(block, "is_error", "true");
+                        cJSON_AddBoolToObject(block, "is_error", 1);
                     }
                     cJSON_AddItemToArray(content, block);
                 }
