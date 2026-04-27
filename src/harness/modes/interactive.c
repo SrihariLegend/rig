@@ -745,6 +745,30 @@ static bool handle_slash_command(InteractiveState *state) {
         } else if (strcmp(arg, "run") == 0) {
             cmd_output(state, "/run <cmd>     — run shell command, show output");
             cmd_output(state, "bypasses the agent, runs directly");
+        } else if (strcmp(arg, "diff") == 0) {
+            cmd_output(state, "/diff          — run git diff --stat in working directory");
+        } else if (strcmp(arg, "undo") == 0) {
+            cmd_output(state, "/undo          — remove last user message + assistant response");
+            cmd_output(state, "also removes from agent context");
+        } else if (strcmp(arg, "context") == 0) {
+            cmd_output(state, "/context       — show context window state");
+            cmd_output(state, "messages in context, tokens used, window size, tool count");
+        } else if (strcmp(arg, "sessions") == 0) {
+            cmd_output(state, "/sessions      — list recent session files");
+            cmd_output(state, "shows up to 20 most recent sessions");
+        } else if (strcmp(arg, "fork") == 0) {
+            cmd_output(state, "/fork          — create new session, keep conversation on screen");
+            cmd_output(state, "context carries over, new session ID for persistence");
+        } else if (strcmp(arg, "clear") == 0) {
+            cmd_output(state, "/clear         — reset agent context (model forgets conversation)");
+            cmd_output(state, "display stays visible, only the model's memory is wiped");
+        } else if (strcmp(arg, "tools") == 0) {
+            cmd_output(state, "/tools         — list all tools available to the model");
+        } else if (strcmp(arg, "exit") == 0 || strcmp(arg, "q") == 0) {
+            cmd_output(state, "/exit or /q    — quit rig");
+        } else if (strcmp(arg, "help") == 0) {
+            cmd_output(state, "/help          — list all commands");
+            cmd_output(state, "/help <cmd>    — detailed help for a command");
         } else {
             char buf[128];
             snprintf(buf, sizeof(buf), "no help for '%s'", arg);
