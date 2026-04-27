@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #define ALIGN_UP(n, a) (((n) + (a) - 1) & ~((a) - 1))
 
@@ -55,6 +56,7 @@ void *arena_alloc(Arena *a, size_t n) {
 }
 
 void *arena_calloc(Arena *a, size_t count, size_t size) {
+    if (size != 0 && count > SIZE_MAX / size) return NULL;
     size_t total = count * size;
     void *ptr = arena_alloc(a, total);
     if (ptr) memset(ptr, 0, total);

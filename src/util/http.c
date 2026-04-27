@@ -289,7 +289,14 @@ static void sse_parser_process_line(SSEParser *p, const char *line, size_t len) 
 
     // Handle data field
     if (field_len == 4 && memcmp(line, "data", 4) == 0) {
+        #define MAX_SSE_EVENT_SIZE (10 * 1024 * 1024)
         p->has_data = true;
+
+        if (p->data_len + value_len + 1 > MAX_SSE_EVENT_SIZE) {
+            sse_parser_dispatch(p);
+            return;
+        }
+
         // Append to data buffer with newline separator
         if (p->data_len > 0) {
             // Add newline between multiple data lines

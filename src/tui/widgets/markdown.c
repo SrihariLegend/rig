@@ -234,6 +234,7 @@ static void wrap_line(const char *formatted, int width, LineBuffer *lb,
             /* check remaining */
             int remaining = flen - (int)(seg - formatted);
             if (char_bytes > remaining) char_bytes = remaining;
+            if (char_bytes <= 0) { seg++; continue; }
 
             unsigned int cp = 0;
             if (char_bytes == 1) cp = c;

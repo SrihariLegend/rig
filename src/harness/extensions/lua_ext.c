@@ -487,6 +487,12 @@ static int lua_pi_register_tool(lua_State *L) {
 
     tool->name = strdup(name);
     tool->description = strdup(description);
+    if (!tool->name || !tool->description) {
+        free(tool->name);
+        free(tool->description);
+        free(tool);
+        return luaL_error(L, "out of memory");
+    }
 
     cJSON *params = cJSON_Parse(schema_json);
     tool->parameters = params ? params : cJSON_CreateObject();

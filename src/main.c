@@ -198,33 +198,34 @@ int main(int argc, char **argv) {
     bedrock_provider_register();
     mistral_provider_register();
 
+    const char *effective_provider = provider;
+    if (!effective_provider) {
+        effective_provider = auth_get_active_provider();
+    }
+
     const Model *model = NULL;
     char *api_key = NULL;
 
-    if (model_pattern) {
-        model = models_get(provider, model_pattern);
-        if (!model) {
-            fprintf(stderr, "Error: Model '%s' not found\n", model_pattern);
-            return 1;
+    int all_count = 0;
+    const Model **all_models = models_get_all(effective_provider, &all_count);
+    for (int i = 0; i < all_count && !api_key; i++) {
+        if (model_pattern) {
+            if (!strstr(all_models[i]->id, model_pattern) &&
+                !strstr(all_models[i]->name, model_pattern)) continue;
         }
-        api_key = auth_get_api_key(model->provider);
-        if (!api_key) {
-            fprintf(stderr, "Error: No API key for provider '%s'\n", model->provider);
-            return 1;
-        }
-    } else {
-        int all_count = 0;
-        const Model **all_models = models_get_all(provider, &all_count);
-        for (int i = 0; i < all_count && !api_key; i++) {
-            char *key = auth_get_api_key(all_models[i]->provider);
-            if (key) { model = all_models[i]; api_key = key; }
-        }
-        if (!model) {
-            fprintf(stderr, "Error: No API key found. Set one of:\n");
-            fprintf(stderr, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,\n");
-            fprintf(stderr, "  MISTRAL_API_KEY, AWS_ACCESS_KEY_ID\n");
-            return 1;
-        }
+        char *key = auth_get_api_key(all_models[i]->provider);
+        if (key) { model = all_models[i]; api_key = key; }
+    }
+
+    if (model_pattern && !model) {
+        fprintf(stderr, "Error: Model '%s' not found or no API key available\n", model_pattern);
+        return 1;
+    }
+    if (!model) {
+        fprintf(stderr, "Error: No API key found. Set one of:\n");
+        fprintf(stderr, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,\n");
+        fprintf(stderr, "  MISTRAL_API_KEY, AWS_ACCESS_KEY_ID\n");
+        return 1;
     }
 
     char cwd[4096];

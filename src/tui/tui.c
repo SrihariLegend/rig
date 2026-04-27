@@ -91,8 +91,11 @@ static char **render_all(TUI *tui, int *total_lines) {
 
         for (int i = 0; i < comp_lines; i++) {
             if (count >= capacity) {
-                capacity *= 2;
-                lines = realloc(lines, capacity * sizeof(char *));
+                int new_cap = capacity * 2;
+                char **new_lines = realloc(lines, new_cap * sizeof(char *));
+                if (!new_lines) break;
+                lines = new_lines;
+                capacity = new_cap;
             }
             lines[count++] = comp_output[i] ? strdup(comp_output[i]) : strdup("");
         }

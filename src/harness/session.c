@@ -314,10 +314,11 @@ int session_append(Session *s, SessionEntryType type, cJSON *data) {
 
     s->entries[s->entry_count++] = *entry;
 
-    free(s->leaf_id);
-    s->leaf_id = strdup(entry->id);
-
+    char *new_leaf_id = strdup(entry->id);
     free(entry);
+
+    free(s->leaf_id);
+    s->leaf_id = new_leaf_id;
 
     cJSON *json = session_entry_to_json(&s->entries[s->entry_count - 1]);
     if (!json) return -1;

@@ -14,8 +14,11 @@ void queue_init(MessageQueue *q, QueueMode mode) {
 
 void queue_enqueue(MessageQueue *q, Message *msg) {
     if (q->count >= q->capacity) {
-        q->capacity = q->capacity ? q->capacity * 2 : 8;
-        q->items = realloc(q->items, (size_t)q->capacity * sizeof(Message *));
+        int new_cap = q->capacity ? q->capacity * 2 : 8;
+        Message **new_items = realloc(q->items, (size_t)new_cap * sizeof(Message *));
+        if (!new_items) return;
+        q->items = new_items;
+        q->capacity = new_cap;
     }
     q->items[q->count++] = msg;
 }
@@ -69,8 +72,11 @@ AgentState *agent_state_create(void) {
 
 void agent_state_add_message(AgentState *state, Message *msg) {
     if (state->message_count >= state->message_capacity) {
-        state->message_capacity = state->message_capacity ? state->message_capacity * 2 : 16;
-        state->messages = realloc(state->messages, (size_t)state->message_capacity * sizeof(Message *));
+        int new_cap = state->message_capacity ? state->message_capacity * 2 : 16;
+        Message **new_msgs = realloc(state->messages, (size_t)new_cap * sizeof(Message *));
+        if (!new_msgs) return;
+        state->messages = new_msgs;
+        state->message_capacity = new_cap;
     }
     state->messages[state->message_count++] = msg;
 }
@@ -217,8 +223,15 @@ static void finalize_tool_call(ToolExecJob *job, AgentLoopConfig *config, Messag
         AfterToolCallResult ar = {0};
         config->after_tool_call(&ctx, &ar);
         if (ar.has_overrides) {
-            if (ar.content) { job->result_content = ar.content; job->result_count = ar.content_count; }
-            if (ar.details) job->result_details = ar.details;
+            if (ar.content) {
+                free(job->result_content);
+                job->result_content = ar.content;
+                job->result_count = ar.content_count;
+            }
+            if (ar.details) {
+                cJSON_Delete(job->result_details);
+                job->result_details = ar.details;
+            }
             job->is_error = ar.is_error;
             job->terminate = ar.terminate;
         }
@@ -279,26 +292,36 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
     if (use_parallel) {
         pthread_t *threads = malloc((size_t)tc_count * sizeof(pthread_t));
         ThreadArg *targs = malloc((size_t)tc_count * sizeof(ThreadArg));
-        int spawned = 0;
+        bool *thread_created = calloc((size_t)tc_count, sizeof(bool));
+
+        if (!threads || !targs || !thread_created) {
+            free(threads); free(targs); free(thread_created);
+            for (int i = 0; i < tc_count; i++) {
+                if (!jobs[i].is_error)
+                    execute_tool_call(&jobs[i], &state->abort_requested);
+            }
+            goto finalize;
+        }
 
         for (int i = 0; i < tc_count; i++) {
             if (jobs[i].is_error) continue;
             targs[i] = (ThreadArg){ .job = &jobs[i], .abort = &state->abort_requested };
             if (pthread_create(&threads[i], NULL, tool_thread_fn, &targs[i]) == 0) {
-                spawned++;
+                thread_created[i] = true;
             } else {
                 execute_tool_call(&jobs[i], &state->abort_requested);
             }
         }
 
         for (int i = 0; i < tc_count; i++) {
-            if (!jobs[i].is_error || jobs[i].tool) {
+            if (thread_created[i]) {
                 pthread_join(threads[i], NULL);
             }
         }
 
         free(threads);
         free(targs);
+        free(thread_created);
     } else {
         for (int i = 0; i < tc_count; i++) {
             if (!jobs[i].is_error) {
@@ -307,6 +330,7 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
         }
     }
 
+    finalize:
     for (int i = 0; i < tc_count; i++) {
         finalize_tool_call(&jobs[i], config, assistant_msg);
     }

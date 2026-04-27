@@ -1,10 +1,10 @@
 CC = cc
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
-CFLAGS += -I src -I deps -I deps/lua5.4 -I deps/libyaml
+CFLAGS += -I src -I deps -I deps/lua5.4 -I deps/libyaml -I deps/md4c
 CFLAGS += -DLUA_USE_POSIX -DHAVE_CONFIG_H
 LDFLAGS = -lcurl -lssl -lcrypto -lm -ldl -lpthread
 
-DEPS_SRC = deps/cjson/cJSON.c
+DEPS_SRC = deps/cjson/cJSON.c deps/md4c/md4c.c
 
 LUA_SRC = $(filter-out deps/lua5.4/lua.c deps/lua5.4/luac.c deps/lua5.4/onelua.c, $(wildcard deps/lua5.4/*.c))
 
@@ -79,6 +79,9 @@ deps/lua5.4/%.o: deps/lua5.4/%.c
 
 deps/libyaml/%.o: deps/libyaml/%.c
 	$(CC) -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DHAVE_CONFIG_H -I deps/libyaml -w -c -o $@ $<
+
+deps/md4c/%.o: deps/md4c/%.c
+	$(CC) -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -I deps/md4c -w -c -o $@ $<
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<

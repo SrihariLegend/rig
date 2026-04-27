@@ -43,6 +43,7 @@ char *base64_decode_alloc(const char *input, size_t *out_len) {
         bits += 6;
         if (bits >= 8) {
             bits -= 8;
+            if (j >= alloc - 1) break;
             out[j++] = (unsigned char)(accum >> bits) & 0xFF;
         }
     }
@@ -107,7 +108,9 @@ void eventstream_parser_feed(EventStreamParser *p, const unsigned char *data, si
 
     if (p->buf_len + len > p->buf_cap) {
         while (p->buf_len + len > p->buf_cap) p->buf_cap *= 2;
-        p->buf = realloc(p->buf, p->buf_cap);
+        unsigned char *new_buf = realloc(p->buf, p->buf_cap);
+        if (!new_buf) return;
+        p->buf = new_buf;
     }
     memcpy(p->buf + p->buf_len, data, len);
     p->buf_len += len;

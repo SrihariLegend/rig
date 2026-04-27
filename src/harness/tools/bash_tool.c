@@ -2,8 +2,10 @@
 #include "util/str.h"
 #include "util/process.h"
 #include "util/json.h"
+#include "util/log.h"
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define MAX_OUTPUT_BYTES (512 * 1024)
 #define MAX_OUTPUT_LINES 10000
@@ -27,6 +29,35 @@ static void collect_stdout(const char *data, size_t len, void *ctx) {
     }
 }
 
+static char *strip_terminal_escapes(const char *input, size_t len) {
+    Str out = str_new(len + 1);
+    size_t i = 0;
+    while (i < len) {
+        if (input[i] == '\x1b') {
+            i++;
+            if (i < len && input[i] == '[') {
+                i++;
+                while (i < len && !isalpha((unsigned char)input[i])) i++;
+                if (i < len) i++;
+            } else if (i < len && input[i] == ']') {
+                i++;
+                while (i < len && input[i] != '\x07' && input[i] != '\x1b') i++;
+                if (i < len && input[i] == '\x07') i++;
+                else if (i + 1 < len && input[i] == '\x1b' && input[i+1] == '\\') i += 2;
+            } else if (i < len && (input[i] == '(' || input[i] == ')')) {
+                i += (i + 1 < len) ? 2 : 1;
+            } else if (i < len) {
+                i++;
+            }
+            continue;
+        }
+        if (input[i] == '\r') { i++; continue; }
+        str_append_char(&out, input[i]);
+        i++;
+    }
+    return str_take(&out);
+}
+
 static int bash_execute(const char *call_id, cJSON *params, void *signal,
                         void (*on_update)(void *ctx, cJSON *partial), void *update_ctx,
                         ContentBlock **content, int *content_count,
@@ -42,11 +73,16 @@ static int bash_execute(const char *call_id, cJSON *params, void *signal,
         return -1;
     }
 
+    LOG_INFO("Bash tool: command='%.200s'", command);
+
     BashCollector collector = { .output = str_new(4096), .line_count = 0 };
+
+    static const char *bash_env[] = { "TERM=dumb", "NO_COLOR=1", "GIT_TERMINAL_PROMPT=0", NULL };
 
     ProcessOptions opts = {
         .command = command,
         .cwd = bash_cwd,
+        .env = bash_env,
         .timeout_ms = 120000,
         .on_stdout = collect_stdout,
         .on_stderr = collect_stdout,
@@ -57,18 +93,24 @@ static int bash_execute(const char *call_id, cJSON *params, void *signal,
     ProcessResult result;
     int rc = process_run(&opts, &result);
 
-    Str output = str_new(collector.output.len + 128);
+    char *clean = strip_terminal_escapes(collector.output.data, collector.output.len);
+    size_t clean_len = strlen(clean);
+
+    Str output = str_new(clean_len + 128);
     if (rc != 0) {
         str_append(&output, "Failed to execute command\n");
     }
     if (result.timed_out) {
         str_append(&output, "[Command timed out after 120s]\n");
     }
-    str_append_len(&output, collector.output.data, collector.output.len);
+    str_append(&output, clean);
+    free(clean);
 
     if (collector.output.len >= MAX_OUTPUT_BYTES) {
         str_append(&output, "\n[Output truncated]");
     }
+
+    LOG_INFO("Bash tool: exit_code=%d output_bytes=%zu", result.exit_code, output.len);
 
     *content = malloc(sizeof(ContentBlock));
     (*content)[0] = content_text(output.data, NULL);
