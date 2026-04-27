@@ -104,5 +104,6 @@ typedef struct {
 ScreenRowRef linestore_row_to_line(const LineStore *ls, int screen_row);
 
 void linestore_parse_inline_spans(StoreLine *line);
+int linestore_compute_wrap(const char *text, int content_width, int indent);
 
 #endif

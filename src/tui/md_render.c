@@ -211,12 +211,8 @@ static void flush_line(MdState *st, LineType type, int indent, int heading_level
     line->wrap_count = 1;
 
     if (line->raw_text) {
-        int ew = st->ls->content_width - 4 - indent;
-        if (ew < 10) ew = 10;
-        int vis = unicode_display_width(line->raw_text);
-        if (vis > ew) {
-            line->wrap_count = (uint16_t)((vis + ew - 1) / ew);
-        }
+        line->wrap_count = (uint16_t)linestore_compute_wrap(
+            line->raw_text, st->ls->content_width, indent);
     }
 
     /* Copy spans — resolve offsets to pointers into raw_text */

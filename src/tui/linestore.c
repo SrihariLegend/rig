@@ -10,11 +10,13 @@
 #define INITIAL_CAP 256
 #define MAX_WRAP 10000
 
-static int compute_wrap_count(const char *text, int content_width) {
-    if (!text || !text[0] || content_width <= 0) return 1;
+static int compute_wrap_count_indent(const char *text, int content_width, int indent) {
+    int avail = content_width - indent;
+    if (avail < 10) avail = 10;
+    if (!text || !text[0] || avail <= 0) return 1;
     int text_len = (int)strlen(text);
     int vis_total = unicode_display_width(text);
-    if (vis_total <= content_width) return 1;
+    if (vis_total <= avail) return 1;
 
     int rows = 0;
     int pos = 0;
@@ -22,7 +24,7 @@ static int compute_wrap_count(const char *text, int content_width) {
         int vis = 0;
         int last_space = -1;
         int row_end = pos;
-        while (row_end < text_len && vis < content_width) {
+        while (row_end < text_len && vis < avail) {
             if (text[row_end] == ' ') last_space = row_end;
             unsigned char c = (unsigned char)text[row_end];
             int bytes = 1;
@@ -40,6 +42,14 @@ static int compute_wrap_count(const char *text, int content_width) {
         while (pos < text_len && text[pos] == ' ') pos++;
     }
     return rows > 0 ? rows : 1;
+}
+
+static int compute_wrap_count(const char *text, int content_width) {
+    return compute_wrap_count_indent(text, content_width, 0);
+}
+
+int linestore_compute_wrap(const char *text, int content_width, int indent) {
+    return compute_wrap_count_indent(text, content_width, indent);
 }
 
 #define SPANS_GROW(spans, count, cap) do { \
