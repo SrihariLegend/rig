@@ -335,6 +335,7 @@ static void *agent_thread_fn(void *raw_arg) {
 /* ---- Key Processing ---- */
 
 static bool handle_key(InteractiveState *state, const ParsedKey *key) {
+    LOG_DEBUG("KEY: id='%s' phase=%d raw_len=%d", key->id, state->phase, key->raw_len);
     if (key_matches(key, "pageup")) {
         lantern_renderer_scroll_up(state->renderer, state->renderer->term_height - 2);
         return true;
@@ -431,7 +432,9 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         if (state->phase == ISTATE_STREAMING) {
             agent_abort(state->agent);
             state->phase = ISTATE_IDLE;
+            state->renderer->is_streaming = false;
             pthread_mutex_lock(&state->mutex);
+            linestore_flush_stream(state->store);
             linestore_add_system(state->store, "interrupted");
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
@@ -440,7 +443,7 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         }
         return true;
     }
-    if (key_matches(key, "escape")) {
+    if (key_matches(key, "escape") || key_matches(key, "ctrl+z")) {
         if (state->phase == ISTATE_STREAMING) {
             agent_abort(state->agent);
             state->phase = ISTATE_IDLE;
