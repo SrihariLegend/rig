@@ -83,8 +83,12 @@ deps/libyaml/%.o: deps/libyaml/%.c
 deps/md4c/%.o: deps/md4c/%.c
 	$(CC) -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -I deps/md4c -w -c -o $@ $<
 
+# Auto-generate header dependencies
+DEPFLAGS = -MMD -MP
 %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
+
+-include $(ALL_OBJ:.o=.d) src/main.d
 
 test/%: test/%.c libpi.a
 	$(CC) $(CFLAGS) -I test -o $@ $< -L. -lpi $(LDFLAGS)
