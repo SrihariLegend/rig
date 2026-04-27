@@ -376,21 +376,12 @@ static bool handle_slash_command(InteractiveState *state) {
         return true;
     }
 
-    /* /clear */
+    /* /clear — reset context, keep display */
     if (strcmp(cmd, "clear") == 0) {
         pthread_mutex_lock(&state->mutex);
-        while (state->store->count > 0) {
-            state->store->count--;
-            state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
-            free(state->store->lines[state->store->count].raw_text);
-            free(state->store->lines[state->store->count].spans);
-            state->store->lines[state->store->count].raw_text = NULL;
-            state->store->lines[state->store->count].spans = NULL;
-        }
-        state->store->total_screen_rows = 0;
-        state->renderer->scroll_offset = 0;
-        state->renderer->auto_scroll = true;
         agent_state_reset(state->agent);
+        state->total_tokens = 0;
+        cmd_output(state, "context cleared");
         cmd_finish(state);
         return true;
     }
