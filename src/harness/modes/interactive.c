@@ -2102,6 +2102,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
             memset(dest, 0, sizeof(Tool));
             dest->name = strdup(et->name);
             dest->description = et->description ? strdup(et->description) : NULL;
+            dest->label = et->label ? strdup(et->label) : NULL;
             dest->parameters = et->parameters ? cJSON_Duplicate(et->parameters, 1) : NULL;
             dest->execute = lua_tool_execute;
             state->tool_count++;

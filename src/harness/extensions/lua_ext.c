@@ -596,6 +596,10 @@ static int lua_rig_set(lua_State *L) {
         cJSON *params = lua_istable(L, -1) ? lua_to_cjson(L, -1) : cJSON_CreateObject();
         lua_pop(L, 1);
 
+        lua_getfield(L, 3, "instructions");
+        const char *instructions = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+        lua_pop(L, 1);
+
         lua_getfield(L, 3, "run");
         if (lua_isfunction(L, -1)) {
             int ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -618,6 +622,7 @@ static int lua_rig_set(lua_State *L) {
         if (!tool) { cJSON_Delete(params); return luaL_error(L, "out of memory"); }
         tool->name = strdup(key);
         tool->description = strdup(desc);
+        tool->label = instructions ? strdup(instructions) : NULL;
         tool->parameters = params;
         extension_api_register_tool(api, tool);
         return 0;
