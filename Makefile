@@ -37,6 +37,7 @@ HARNESS_SRC = src/harness/config.c src/harness/auth.c src/harness/system_prompt.
               src/harness/tools/bash_tool.c src/harness/tools/read_tool.c \
               src/harness/tools/write_tool.c src/harness/tools/edit_tool.c \
               src/harness/tools/grep_tool.c src/harness/tools/ls_tool.c \
+              src/harness/tools/introspect_tool.c \
               src/harness/modes/print.c src/harness/modes/interactive.c \
               src/harness/model_registry.c src/harness/compaction.c \
               src/harness/export.c src/harness/migrations.c \

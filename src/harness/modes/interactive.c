@@ -2365,6 +2365,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     state->tools[state->tool_count++] = tool_edit_create();
     state->tools[state->tool_count++] = tool_grep_create();
     state->tools[state->tool_count++] = tool_ls_create();
+    state->tools[state->tool_count++] = tool_introspect_create();
 
     state->agent->tools = state->tools;
     state->agent->tool_count = state->tool_count;
@@ -2488,8 +2489,15 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
             state->tools, state->tool_count, state->cwd);
 
         LOG_INFO("agent has %d tools (%d from extensions)",
-                 state->tool_count, state->tool_count - 6);
+                 state->tool_count, state->tool_count - 7);
     }
+
+    /* Set introspect tool context */
+    introspect_tool_set_context(
+        state->pi ? state->pi->api : NULL,
+        state->perms,
+        state->tools, state->tool_count,
+        state->cwd);
 
     /* Session */
     const char *sessions_dir = config_sessions_dir();

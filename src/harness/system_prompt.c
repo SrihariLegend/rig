@@ -180,6 +180,18 @@ char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd) {
         "- Use to explore project structure before reading files.\n"
         "- For deep exploration, use `bash` with `find` or `tree` instead.\n\n");
 
+    str_append(&s,
+        "## introspect\n"
+        "Query Rig's own internal state. Use when answering questions about what Rig "
+        "can do, what's configured, or what extensions are loaded.\n\n"
+        "- `tools` — list all tools with descriptions\n"
+        "- `extensions` — list loaded extensions\n"
+        "- `trust` — show permission/trust rules\n"
+        "- `config` — show directories and paths\n"
+        "- `commands` — list all slash commands\n"
+        "- `project` — show .rig/ directory contents\n\n"
+        "Use introspect instead of guessing about Rig's capabilities.\n\n");
+
     /* ---- Extension tool instructions ---- */
 
     if (tools && tool_count > 0) {
