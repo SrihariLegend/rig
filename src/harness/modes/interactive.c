@@ -8,6 +8,7 @@
 #include "ai/providers/bedrock.h"
 #include "ai/providers/mistral.h"
 #include "util/log.h"
+#include "harness/turnlog.h"
 #include "tui/lantern.h"
 #include "tui/linestore.h"
 #include "tui/lantern_render.h"
@@ -62,6 +63,7 @@ typedef struct {
     int tool_count;
     char cwd[4096];
     char *api_key;
+    TurnLog *turnlog;
 } InteractiveState;
 
 /* ---- Forward Decls ---- */
@@ -267,6 +269,32 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
 
 /* ---- Submit ---- */
 
+static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result) {
+    (void)result;
+    InteractiveState *state = NULL;
+    /* ctx doesn't carry userdata, so we use a static pointer set before each agent_prompt */
+    extern InteractiveState *g_interactive_state;
+    state = g_interactive_state;
+    if (!state || !state->turnlog) return 0;
+
+    const char *name = ctx->tool_call ? ctx->tool_call->tool_call.name : NULL;
+    if (!name) return 0;
+
+    if (strcmp(name, "write") == 0 || strcmp(name, "edit") == 0) {
+        const char *path = NULL;
+        if (ctx->args) {
+            cJSON *fp = cJSON_GetObjectItem(ctx->args, "file_path");
+            if (fp && cJSON_IsString(fp)) path = fp->valuestring;
+        }
+        if (path) {
+            turnlog_snapshot_file(state->turnlog, path);
+        }
+    }
+    return 0;
+}
+
+InteractiveState *g_interactive_state = NULL;
+
 static void handle_submit(InteractiveState *state) {
     if (state->input_len == 0) return;
     if (!state->model || !state->api_key) {
@@ -304,6 +332,12 @@ static void handle_submit(InteractiveState *state) {
 
     state->phase = ISTATE_STREAMING;
     state->renderer->is_streaming = true;
+
+    /* Begin a new turn for undo tracking */
+    turnlog_begin_turn(state->turnlog,
+                       state->agent->message_count,
+                       state->store->count);
+    g_interactive_state = state;
 
     typedef struct { InteractiveState *state; char *prompt; } AgentThreadArg;
     AgentThreadArg *arg = malloc(sizeof(AgentThreadArg));
@@ -507,24 +541,66 @@ static bool handle_slash_command(InteractiveState *state) {
 
     /* /undo */
     if (strcmp(cmd, "undo") == 0) {
-        pthread_mutex_lock(&state->mutex);
-        if (state->agent->message_count >= 2) {
-            /* Remove last assistant + user message pair from agent state */
-            state->agent->message_count -= 2;
+        Turn *turn = turnlog_latest(state->turnlog);
+        if (!turn) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "nothing to undo");
+            cmd_finish(state);
+            return true;
         }
-        /* Remove lines until we hit a previous user text or empty */
-        int target = state->store->count;
-        int user_msgs_found = 0;
-        for (int i = state->store->count - 1; i >= 0; i--) {
-            if (state->store->lines[i].type == LINE_USER_TEXT) {
-                user_msgs_found++;
-                if (user_msgs_found == 1) {
-                    target = i;
-                    break;
+
+        /* Show what will be undone */
+        pthread_mutex_lock(&state->mutex);
+        char buf[256];
+        snprintf(buf, sizeof(buf), "undo turn %d:", turn->turn_id);
+        cmd_output(state, buf);
+
+        if (turn->snapshot_count > 0) {
+            for (int i = 0; i < turn->snapshot_count; i++) {
+                snprintf(buf, sizeof(buf), "  revert %s%s",
+                         turn->snapshots[i].file_path,
+                         turn->snapshots[i].was_created ? " (delete)" : "");
+                cmd_output(state, buf);
+            }
+            cmd_output(state, "confirm? y/n");
+            state->needs_render = true;
+            pthread_mutex_unlock(&state->mutex);
+
+            /* Wait for y/n — poll for single keypress */
+            struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+            bool confirmed = false;
+            while (1) {
+                int ready = poll(&pfd, 1, 100);
+                if (ready > 0) {
+                    char ch[16];
+                    ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
+                    if (n > 0) {
+                        if (ch[0] == 'y' || ch[0] == 'Y') { confirmed = true; break; }
+                        if (ch[0] == 'n' || ch[0] == 'N' || ch[0] == '\x1b' || ch[0] == '\x03') break;
+                    }
                 }
             }
+
+            pthread_mutex_lock(&state->mutex);
+            if (!confirmed) {
+                cmd_output(state, "cancelled");
+                cmd_finish(state);
+                return true;
+            }
+
+            /* Restore files */
+            int restored = turnlog_restore_turn(turn);
+            snprintf(buf, sizeof(buf), "reverted %d file%s", restored, restored == 1 ? "" : "s");
+            cmd_output(state, buf);
         }
-        while (state->store->count > target) {
+
+        /* Remove messages from agent context */
+        if (state->agent->message_count > turn->msg_start_index) {
+            state->agent->message_count = turn->msg_start_index;
+        }
+
+        /* Remove display lines */
+        while (state->store->count > turn->store_start_index) {
             state->store->count--;
             state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
             free(state->store->lines[state->store->count].raw_text);
@@ -532,6 +608,8 @@ static bool handle_slash_command(InteractiveState *state) {
             state->store->lines[state->store->count].raw_text = NULL;
             state->store->lines[state->store->count].spans = NULL;
         }
+
+        turnlog_pop(state->turnlog);
         cmd_output(state, "undone");
         cmd_finish(state);
         return true;
@@ -1025,7 +1103,10 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
         .api_key = state->api_key,
         .timeout_ms = 120000,
         .abort_flag = &state->agent->abort_requested,
+        .before_tool_call = before_tool,
     };
+
+    state->turnlog = turnlog_create(0);
 
     /* Lantern */
     state->lantern = lantern_create(NULL);
@@ -1140,6 +1221,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     free(state->input_buf);
     free(state->api_key);
     free(state->last_prompt);
+    if (state->turnlog) turnlog_free(state->turnlog);
     free(state);
 
     ai_registry_cleanup();

@@ -2,7 +2,7 @@ CC = cc
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 CFLAGS += -I src -I deps -I deps/lua5.4 -I deps/libyaml -I deps/md4c
 CFLAGS += -DLUA_USE_POSIX -DHAVE_CONFIG_H
-LDFLAGS = -lcurl -lssl -lcrypto -lm -ldl -lpthread
+LDFLAGS = -lcurl -lssl -lcrypto -lm -ldl -lpthread -lz
 
 DEPS_SRC = deps/cjson/cJSON.c deps/md4c/md4c.c
 
@@ -38,7 +38,8 @@ HARNESS_SRC = src/harness/config.c src/harness/auth.c src/harness/system_prompt.
               src/harness/tools/grep_tool.c src/harness/tools/ls_tool.c \
               src/harness/modes/print.c src/harness/modes/interactive.c \
               src/harness/model_registry.c src/harness/compaction.c \
-              src/harness/export.c src/harness/migrations.c
+              src/harness/export.c src/harness/migrations.c \
+              src/harness/turnlog.c
 HARNESS_OBJ = $(HARNESS_SRC:.c=.o)
 
 EXT_SRC = src/harness/extensions/hooks.c src/harness/extensions/event_bus.c \
