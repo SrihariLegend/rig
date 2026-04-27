@@ -340,6 +340,431 @@ static void *agent_thread_fn(void *raw_arg) {
     return NULL;
 }
 
+/* ---- Slash Commands ---- */
+
+static void cmd_output(InteractiveState *state, const char *text) {
+    linestore_add_system(state->store, text);
+}
+
+static void cmd_finish(InteractiveState *state) {
+    state->needs_render = true;
+    pthread_mutex_unlock(&state->mutex);
+    input_clear(state);
+    sync_input_to_renderer(state);
+}
+
+static bool handle_slash_command(InteractiveState *state) {
+    const char *full = state->input_buf + 1;
+    char cmd[64] = {0};
+    const char *arg = NULL;
+
+    const char *space = strchr(full, ' ');
+    if (space) {
+        int len = (int)(space - full);
+        if (len > 63) len = 63;
+        memcpy(cmd, full, len);
+        arg = space + 1;
+        while (*arg == ' ') arg++;
+        if (!*arg) arg = NULL;
+    } else {
+        strncpy(cmd, full, 63);
+    }
+
+    /* /exit /quit /q */
+    if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0 || strcmp(cmd, "q") == 0) {
+        state->running = false;
+        return true;
+    }
+
+    /* /clear */
+    if (strcmp(cmd, "clear") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        while (state->store->count > 0) {
+            state->store->count--;
+            state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
+            free(state->store->lines[state->store->count].raw_text);
+            free(state->store->lines[state->store->count].spans);
+            state->store->lines[state->store->count].raw_text = NULL;
+            state->store->lines[state->store->count].spans = NULL;
+        }
+        state->store->total_screen_rows = 0;
+        state->renderer->scroll_offset = 0;
+        state->renderer->auto_scroll = true;
+        agent_state_reset(state->agent);
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /model [name] or /model list */
+    if (strcmp(cmd, "model") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        if (!arg) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "model: %s (%s)",
+                     state->model ? state->model->name : "none",
+                     state->model ? state->model->id : "none");
+            cmd_output(state, buf);
+            if (state->total_tokens > 0) {
+                snprintf(buf, sizeof(buf), "tokens: %d", state->total_tokens);
+                cmd_output(state, buf);
+            }
+        } else if (strcmp(arg, "list") == 0) {
+            const char *provider = auth_get_active_provider();
+            int count = 0;
+            const Model **all = models_get_all(provider, &count);
+            for (int i = 0; i < count; i++) {
+                char buf[256];
+                const char *marker = (state->model && strcmp(state->model->id, all[i]->id) == 0) ? " *" : "";
+                snprintf(buf, sizeof(buf), "  %s (%s)%s", all[i]->name, all[i]->id, marker);
+                cmd_output(state, buf);
+            }
+        } else {
+            const char *provider = auth_get_active_provider();
+            int count = 0;
+            const Model **all = models_get_all(provider, &count);
+            const Model *found = NULL;
+            for (int i = 0; i < count; i++) {
+                if (strstr(all[i]->id, arg) || strstr(all[i]->name, arg)) {
+                    found = all[i];
+                    break;
+                }
+            }
+            if (found) {
+                char *key = auth_get_api_key(found->provider);
+                if (key) {
+                    state->model = found;
+                    free(state->api_key);
+                    state->api_key = key;
+                    state->agent->model = found;
+                    state->agent_config.model = found;
+                    state->agent_config.max_tokens = found->max_tokens;
+                    state->agent_config.api_key = key;
+                    free(state->agent->system_prompt);
+                    state->agent->system_prompt = system_prompt_build(
+                        state->tools, state->tool_count, state->cwd);
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "switched to %s", found->name);
+                    cmd_output(state, buf);
+                } else {
+                    cmd_output(state, "no API key for that model's provider");
+                }
+            } else {
+                cmd_output(state, "model not found — try /model list");
+            }
+        }
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /tools */
+    if (strcmp(cmd, "tools") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        for (int i = 0; i < state->tool_count; i++) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "  %s — %s",
+                     state->tools[i].name,
+                     state->tools[i].description ? state->tools[i].description : "");
+            cmd_output(state, buf);
+        }
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /run <command> */
+    if (strcmp(cmd, "run") == 0) {
+        if (!arg) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "usage: /run <command>");
+            cmd_finish(state);
+            return true;
+        }
+        pthread_mutex_lock(&state->mutex);
+        char label[256];
+        snprintf(label, sizeof(label), "$ %s", arg);
+        cmd_output(state, label);
+        pthread_mutex_unlock(&state->mutex);
+
+        Str output = str_new(4096);
+        ProcessOptions opts = {
+            .command = arg,
+            .cwd = state->cwd,
+            .timeout_ms = 30000,
+            .on_stdout = (void (*)(const char *, size_t, void *))str_append_len,
+            .on_stderr = (void (*)(const char *, size_t, void *))str_append_len,
+            .ctx = &output,
+        };
+        ProcessResult result;
+        process_run(&opts, &result);
+
+        pthread_mutex_lock(&state->mutex);
+        if (output.len > 0) {
+            linestore_add_tool_output(state->store, output.data);
+        }
+        char rc_buf[64];
+        snprintf(rc_buf, sizeof(rc_buf), "exit %d", result.exit_code);
+        cmd_output(state, rc_buf);
+        str_free(&output);
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /undo */
+    if (strcmp(cmd, "undo") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        if (state->agent->message_count >= 2) {
+            /* Remove last assistant + user message pair from agent state */
+            state->agent->message_count -= 2;
+        }
+        /* Remove lines until we hit a previous user text or empty */
+        int target = state->store->count;
+        int user_msgs_found = 0;
+        for (int i = state->store->count - 1; i >= 0; i--) {
+            if (state->store->lines[i].type == LINE_USER_TEXT) {
+                user_msgs_found++;
+                if (user_msgs_found == 1) {
+                    target = i;
+                    break;
+                }
+            }
+        }
+        while (state->store->count > target) {
+            state->store->count--;
+            state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
+            free(state->store->lines[state->store->count].raw_text);
+            free(state->store->lines[state->store->count].spans);
+            state->store->lines[state->store->count].raw_text = NULL;
+            state->store->lines[state->store->count].spans = NULL;
+        }
+        cmd_output(state, "undone");
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /diff */
+    if (strcmp(cmd, "diff") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        cmd_output(state, "$ git diff --stat");
+        pthread_mutex_unlock(&state->mutex);
+
+        Str output = str_new(4096);
+        ProcessOptions opts = {
+            .command = "git diff --stat",
+            .cwd = state->cwd,
+            .timeout_ms = 10000,
+            .on_stdout = (void (*)(const char *, size_t, void *))str_append_len,
+            .on_stderr = (void (*)(const char *, size_t, void *))str_append_len,
+            .ctx = &output,
+        };
+        ProcessResult result;
+        process_run(&opts, &result);
+
+        pthread_mutex_lock(&state->mutex);
+        if (output.len > 0) {
+            linestore_add_tool_output(state->store, output.data);
+        } else {
+            cmd_output(state, "no changes");
+        }
+        (void)result;
+        str_free(&output);
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /find <query> */
+    if (strcmp(cmd, "find") == 0) {
+        if (!arg) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "usage: /find <query>");
+            cmd_finish(state);
+            return true;
+        }
+        /* Send as a prompt to the agent with search instruction */
+        char *prompt = malloc(strlen(arg) + 128);
+        if (prompt) {
+            snprintf(prompt, strlen(arg) + 128,
+                "Search the codebase for: %s\nUse grep and read tools. "
+                "Report relevant files and line numbers. Be concise.", arg);
+            input_clear(state);
+            /* Insert as prompt text and submit */
+            input_insert(state, prompt, (int)strlen(prompt));
+            free(prompt);
+            handle_submit(state);
+        }
+        return true;
+    }
+
+    /* /context */
+    if (strcmp(cmd, "context") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        char buf[256];
+        snprintf(buf, sizeof(buf), "messages: %d", state->agent->message_count);
+        cmd_output(state, buf);
+        snprintf(buf, sizeof(buf), "tokens used: %d", state->total_tokens);
+        cmd_output(state, buf);
+        int ctx = state->model ? state->model->context_window : 0;
+        if (ctx > 0) {
+            snprintf(buf, sizeof(buf), "context window: %d", ctx);
+            cmd_output(state, buf);
+        }
+        snprintf(buf, sizeof(buf), "tools: %d", state->tool_count);
+        cmd_output(state, buf);
+        snprintf(buf, sizeof(buf), "display lines: %d", state->store->count);
+        cmd_output(state, buf);
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /sessions */
+    if (strcmp(cmd, "sessions") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        const char *dir = config_sessions_dir();
+        char list_cmd[512];
+        snprintf(list_cmd, sizeof(list_cmd), "ls -1t '%s'/*.jsonl 2>/dev/null | head -20", dir);
+        pthread_mutex_unlock(&state->mutex);
+
+        Str output = str_new(1024);
+        ProcessOptions opts = {
+            .command = list_cmd,
+            .timeout_ms = 5000,
+            .on_stdout = (void (*)(const char *, size_t, void *))str_append_len,
+            .ctx = &output,
+        };
+        ProcessResult result;
+        process_run(&opts, &result);
+
+        pthread_mutex_lock(&state->mutex);
+        if (output.len > 0) {
+            linestore_add_tool_output(state->store, output.data);
+        } else {
+            cmd_output(state, "no sessions found");
+        }
+        if (state->session) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "current: %s",
+                     state->session->session_id ? state->session->session_id : "none");
+            cmd_output(state, buf);
+        }
+        (void)result;
+        str_free(&output);
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /fork */
+    if (strcmp(cmd, "fork") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        if (state->session) {
+            const char *dir = config_sessions_dir();
+            Session *new_session = session_create(dir);
+            if (new_session) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "forked to session %s", new_session->session_id);
+                cmd_output(state, buf);
+                session_free(state->session);
+                state->session = new_session;
+            } else {
+                cmd_output(state, "failed to create new session");
+            }
+        }
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /theme <name> */
+    if (strcmp(cmd, "theme") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        if (!arg) {
+            cmd_output(state, "themes: default, midnight, ember, ghost, daylight");
+            cmd_output(state, "usage: /theme <name>");
+        } else if (strcmp(arg, "default") == 0) {
+            state->lantern->config = lantern_defaults();
+            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
+            cmd_output(state, "theme: default");
+        } else if (strcmp(arg, "midnight") == 0) {
+            state->lantern->config.warmth = (RGB){180, 190, 210};
+            state->lantern->config.coolness = (RGB){60, 70, 90};
+            state->lantern->config.accent = (RGB){100, 150, 220};
+            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
+            cmd_output(state, "theme: midnight");
+        } else if (strcmp(arg, "ember") == 0) {
+            state->lantern->config.warmth = (RGB){240, 200, 170};
+            state->lantern->config.coolness = (RGB){120, 80, 60};
+            state->lantern->config.accent = (RGB){255, 120, 50};
+            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
+            cmd_output(state, "theme: ember");
+        } else if (strcmp(arg, "ghost") == 0) {
+            state->lantern->config.warmth = (RGB){200, 210, 220};
+            state->lantern->config.coolness = (RGB){60, 65, 75};
+            state->lantern->config.accent = (RGB){136, 170, 204};
+            state->lantern->config.floor = 0.02f;
+            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
+            cmd_output(state, "theme: ghost");
+        } else if (strcmp(arg, "daylight") == 0) {
+            state->lantern->config.warmth = (RGB){40, 36, 30};
+            state->lantern->config.coolness = (RGB){140, 135, 130};
+            state->lantern->config.accent = (RGB){139, 105, 20};
+            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
+            cmd_output(state, "theme: daylight");
+        } else {
+            cmd_output(state, "unknown theme — try: default, midnight, ember, ghost, daylight");
+        }
+        cmd_finish(state);
+        return true;
+    }
+
+    /* /help [command] */
+    if (strcmp(cmd, "help") == 0) {
+        pthread_mutex_lock(&state->mutex);
+        if (!arg) {
+            cmd_output(state, "/help [cmd]  — show help");
+            cmd_output(state, "/model [name|list] — show/switch model");
+            cmd_output(state, "/tools       — list available tools");
+            cmd_output(state, "/run <cmd>   — run shell command directly");
+            cmd_output(state, "/find <query> — search codebase via agent");
+            cmd_output(state, "/diff        — git diff --stat");
+            cmd_output(state, "/undo        — remove last exchange");
+            cmd_output(state, "/context     — show context window usage");
+            cmd_output(state, "/sessions    — list saved sessions");
+            cmd_output(state, "/fork        — fork to new session");
+            cmd_output(state, "/theme <name> — switch color theme");
+            cmd_output(state, "/clear       — clear conversation");
+            cmd_output(state, "/exit        — quit (/q)");
+        } else if (strcmp(arg, "model") == 0) {
+            cmd_output(state, "/model         — show current model and token count");
+            cmd_output(state, "/model list    — list all available models for your provider");
+            cmd_output(state, "/model <name>  — switch to model matching name (partial match)");
+        } else if (strcmp(arg, "theme") == 0) {
+            cmd_output(state, "/theme         — list available themes");
+            cmd_output(state, "/theme <name>  — switch theme");
+            cmd_output(state, "  default  — warm amber on dark");
+            cmd_output(state, "  midnight — cool blue");
+            cmd_output(state, "  ember    — hot orange");
+            cmd_output(state, "  ghost    — pale blue, deep fade");
+            cmd_output(state, "  daylight — dark text (for light terminals)");
+        } else if (strcmp(arg, "find") == 0) {
+            cmd_output(state, "/find <query>  — semantic search via agent");
+            cmd_output(state, "sends query to the model with instruction to grep/read");
+        } else if (strcmp(arg, "run") == 0) {
+            cmd_output(state, "/run <cmd>     — run shell command, show output");
+            cmd_output(state, "bypasses the agent, runs directly");
+        } else {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "no help for '%s'", arg);
+            cmd_output(state, buf);
+        }
+        cmd_finish(state);
+        return true;
+    }
+
+    /* Unknown command */
+    pthread_mutex_lock(&state->mutex);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "unknown command: /%s — try /help", cmd);
+    linestore_add_error(state->store, buf);
+    cmd_finish(state);
+    return true;
+}
+
 /* ---- Key Processing ---- */
 
 static bool handle_key(InteractiveState *state, const ParsedKey *key) {
@@ -374,73 +799,11 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
     }
     if (key_matches(key, "enter")) {
         if (state->phase == ISTATE_IDLE) {
-            /* Check for slash commands */
             if (state->input_len > 0 && state->input_buf[0] == '/') {
-                const char *cmd = state->input_buf + 1;
-                if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0 || strcmp(cmd, "q") == 0) {
-                    state->running = false;
-                    return true;
-                }
-                if (strcmp(cmd, "clear") == 0) {
-                    pthread_mutex_lock(&state->mutex);
-                    while (state->store->count > 0) {
-                        state->store->count--;
-                        state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
-                        free(state->store->lines[state->store->count].raw_text);
-                        free(state->store->lines[state->store->count].spans);
-                        state->store->lines[state->store->count].raw_text = NULL;
-                        state->store->lines[state->store->count].spans = NULL;
-                    }
-                    state->store->total_screen_rows = 0;
-                    state->renderer->scroll_offset = 0;
-                    state->renderer->auto_scroll = true;
-                    state->needs_render = true;
-                    pthread_mutex_unlock(&state->mutex);
-                    input_clear(state);
-                    sync_input_to_renderer(state);
-                    return true;
-                }
-                if (strcmp(cmd, "model") == 0) {
-                    pthread_mutex_lock(&state->mutex);
-                    const char *name = state->model ? state->model->name : "none";
-                    const char *id = state->model ? state->model->id : "none";
-                    char buf[256];
-                    snprintf(buf, sizeof(buf), "model: %s (%s)", name, id);
-                    linestore_add_system(state->store, buf);
-                    if (state->total_tokens > 0) {
-                        snprintf(buf, sizeof(buf), "tokens used: %d", state->total_tokens);
-                        linestore_add_system(state->store, buf);
-                    }
-                    state->needs_render = true;
-                    pthread_mutex_unlock(&state->mutex);
-                    input_clear(state);
-                    sync_input_to_renderer(state);
-                    return true;
-                }
-                if (strcmp(cmd, "help") == 0) {
-                    pthread_mutex_lock(&state->mutex);
-                    linestore_add_system(state->store, "/help    — show this");
-                    linestore_add_system(state->store, "/model   — show current model");
-                    linestore_add_system(state->store, "/clear   — clear conversation");
-                    linestore_add_system(state->store, "/exit    — quit (/q also works)");
-                    state->needs_render = true;
-                    pthread_mutex_unlock(&state->mutex);
-                    input_clear(state);
-                    sync_input_to_renderer(state);
-                    return true;
-                }
-                /* Unknown command */
-                pthread_mutex_lock(&state->mutex);
-                char buf[128];
-                snprintf(buf, sizeof(buf), "unknown command: %s", state->input_buf);
-                linestore_add_error(state->store, buf);
-                state->needs_render = true;
-                pthread_mutex_unlock(&state->mutex);
-                input_clear(state);
-                sync_input_to_renderer(state);
-                return true;
+                handle_slash_command(state);
+            } else {
+                handle_submit(state);
             }
-            handle_submit(state);
         }
         return true;
     }
