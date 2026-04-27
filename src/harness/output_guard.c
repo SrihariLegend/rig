@@ -18,9 +18,9 @@ OutputGuardConfig output_guard_defaults(void) {
 }
 
 /* Count newlines in buffer */
-static int count_lines(const char *data, int len) {
+static int count_lines(const char *data, size_t len) {
     int lines = 0;
-    for (int i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         if (data[i] == '\n') lines++;
     }
     /* Count the last line even without trailing newline */
@@ -29,9 +29,9 @@ static int count_lines(const char *data, int len) {
 }
 
 /* Find the byte offset just after the Nth newline (or end of buffer) */
-static int find_line_offset(const char *data, int len, int target_line) {
+static size_t find_line_offset(const char *data, size_t len, int target_line) {
     int line = 0;
-    for (int i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         if (data[i] == '\n') {
             line++;
             if (line >= target_line) return i + 1;
@@ -44,7 +44,7 @@ static int find_line_offset(const char *data, int len, int target_line) {
    We want the last target_lines complete lines. Walk backwards, counting
    newlines. The first newline from the end terminates the last line, so
    we need target_lines+1 newlines (or BOF) to capture target_lines lines. */
-static int find_line_offset_from_end(const char *data, int len, int target_lines) {
+static size_t find_line_offset_from_end(const char *data, size_t len, int target_lines) {
     int newlines = 0;
     /* Skip a trailing newline at the very end (it terminates the last line,
        not an empty line after it) */
@@ -60,7 +60,7 @@ static int find_line_offset_from_end(const char *data, int len, int target_lines
     return 0;
 }
 
-GuardedOutput *output_guard_apply(const char *raw_output, int raw_len,
+GuardedOutput *output_guard_apply(const char *raw_output, size_t raw_len,
                                    OutputGuardConfig *config) {
     OutputGuardConfig cfg;
     if (config) {

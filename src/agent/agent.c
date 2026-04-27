@@ -449,6 +449,8 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
             int converted_count = 0;
             convert(llm_msgs, llm_count, &converted, &converted_count);
 
+            /* Shallow copy — flat_msgs aliases content pointers in state->messages.
+             * ai_stream_simple must not retain pointers after returning. */
             Message *flat_msgs = NULL;
             if (converted_count > 0) {
                 flat_msgs = malloc((size_t)converted_count * sizeof(Message));
@@ -486,6 +488,9 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
             free(flat_msgs);
             free(allocated_key);
 
+            /* convert_to_llm may return the original array (aliased) or a new one.
+             * If new, we free the array. Individual Message* are owned by the
+             * converter and must be freed there if allocated. */
             if (converted != llm_msgs) {
                 free(converted);
             }

@@ -83,10 +83,10 @@ void hashmap_set(Hashmap *m, const char *key, void *value) {
             return;
         }
 
-        if (e->hash == hash && strcmp(e->key, key) == 0) {
+        if (e->hash == incoming.hash && strcmp(e->key, incoming.key) == 0) {
             if (m->free_value) m->free_value(e->value);
             free(incoming.key);
-            e->value = value;
+            e->value = incoming.value;
             return;
         }
 

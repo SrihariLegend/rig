@@ -2,23 +2,24 @@
 #define PI_HARNESS_OUTPUT_GUARD_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct {
-    int max_output_bytes;     /* default 512KB */
-    int max_output_lines;     /* default 10000 */
-    int truncation_lines;     /* show first N + last N lines, default 50 */
-    bool warn_on_truncation;  /* default true */
+    size_t max_output_bytes;
+    int max_output_lines;
+    int truncation_lines;
+    bool warn_on_truncation;
 } OutputGuardConfig;
 
 typedef struct {
     char *content;
-    int content_len;
+    size_t content_len;
     bool was_truncated;
-    int original_bytes;
+    size_t original_bytes;
     int original_lines;
 } GuardedOutput;
 
-GuardedOutput *output_guard_apply(const char *raw_output, int raw_len,
+GuardedOutput *output_guard_apply(const char *raw_output, size_t raw_len,
                                    OutputGuardConfig *config);
 void guarded_output_free(GuardedOutput *go);
 

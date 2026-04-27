@@ -39,7 +39,17 @@ int process_run(const ProcessOptions *opts, ProcessResult *result) {
 
         if (opts->cwd && chdir(opts->cwd) != 0) _exit(127);
         if (opts->env) {
-            for (const char **e = opts->env; *e; e++) putenv((char *)*e);
+            for (const char **e = opts->env; *e; e++) {
+                const char *eq = strchr(*e, '=');
+                if (eq) {
+                    char key[128];
+                    int klen = (int)(eq - *e);
+                    if (klen > 127) klen = 127;
+                    memcpy(key, *e, klen);
+                    key[klen] = '\0';
+                    setenv(key, eq + 1, 1);
+                }
+            }
         }
 
         execl("/bin/sh", "sh", "-c", opts->command, (char *)NULL);

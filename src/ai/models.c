@@ -146,6 +146,7 @@ const Model *models_get(const char *provider, const char *model_id) {
     return NULL;
 }
 
+/* Returns pointer to static buffer — invalidated by next call. Not thread-safe. */
 const Model **models_get_all(const char *provider, int *count) {
     static const Model *result[32];
     int n = 0;
