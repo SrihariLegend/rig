@@ -19,6 +19,7 @@ typedef struct {
     bool dirty;
 
     char *input_line;
+    int input_cursor_pos;
     bool input_active;
     bool show_scroll_hint;
 

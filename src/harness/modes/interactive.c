@@ -48,6 +48,8 @@ typedef struct {
     InteractivePhase phase;
     uint32_t msg_counter;
     bool thinking_active;
+    char *last_prompt;
+    int last_prompt_store_idx;
 
     const Model *model;
     int total_tokens;
@@ -113,6 +115,7 @@ static void input_clear(InteractiveState *state) {
 
 static void sync_input_to_renderer(InteractiveState *state) {
     lantern_renderer_set_input(state->renderer, state->input_buf, state->input_cursor);
+    state->needs_render = true;
 }
 
 /* ---- Agent Events ---- */
@@ -270,11 +273,14 @@ static void handle_submit(InteractiveState *state) {
     }
 
     char *prompt_text = strdup(state->input_buf);
+    free(state->last_prompt);
+    state->last_prompt = strdup(state->input_buf);
     input_clear(state);
     sync_input_to_renderer(state);
 
     pthread_mutex_lock(&state->mutex);
     state->msg_counter++;
+    state->last_prompt_store_idx = state->store->count;
     linestore_add_user_text(state->store, prompt_text);
     linestore_add_blank(state->store);
     state->needs_render = true;
@@ -438,8 +444,27 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         if (state->phase == ISTATE_STREAMING) {
             agent_abort(state->agent);
             state->phase = ISTATE_IDLE;
+            state->renderer->is_streaming = false;
+
             pthread_mutex_lock(&state->mutex);
-            linestore_add_system(state->store, "cancelled");
+            /* If no assistant content yet, restore prompt to input */
+            bool has_response = (state->store->count > state->store->stream_start_idx);
+            if (!has_response && state->last_prompt) {
+                /* Remove user text + blank we added */
+                while (state->store->count > state->last_prompt_store_idx) {
+                    state->store->count--;
+                    state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
+                    free(state->store->lines[state->store->count].raw_text);
+                    free(state->store->lines[state->store->count].spans);
+                    state->store->lines[state->store->count].raw_text = NULL;
+                    state->store->lines[state->store->count].spans = NULL;
+                }
+                input_insert(state, state->last_prompt, (int)strlen(state->last_prompt));
+                sync_input_to_renderer(state);
+            } else {
+                linestore_flush_stream(state->store);
+                linestore_add_system(state->store, "interrupted");
+            }
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
         }
@@ -710,6 +735,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     pthread_mutex_destroy(&state->mutex);
     free(state->input_buf);
     free(state->api_key);
+    free(state->last_prompt);
     free(state);
 
     ai_registry_cleanup();

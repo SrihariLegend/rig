@@ -8,12 +8,8 @@
 
 #define MAX_LINE_BUF 4096
 
-static const char *SPINNER_FRAMES[] = {
-    "\xe2\xa0\x8b", "\xe2\xa0\x99", "\xe2\xa0\xb9", "\xe2\xa0\xb8",
-    "\xe2\xa0\xbc", "\xe2\xa0\xb4", "\xe2\xa0\xa6", "\xe2\xa0\xa7",
-    "\xe2\xa0\x87", "\xe2\xa0\x8f",
-};
-#define SPINNER_COUNT 10
+static const char *SPINNER_FRAMES[] = { "|", "/", "-", "\\" };
+#define SPINNER_COUNT 4
 
 LanternRenderer *lantern_renderer_create(Lantern *lantern, LineStore *store) {
     LanternRenderer *r = calloc(1, sizeof(LanternRenderer));
@@ -527,10 +523,30 @@ void lantern_renderer_render(LanternRenderer *r) {
     }
 
     /* Position cursor at input (after "> " prefix) */
-    int cursor_col = r->left_margin + 2 + 2;
-    if (r->input_line) cursor_col += unicode_display_width(r->input_line);
-    terminal_move_cursor(viewport_height, cursor_col + 1);
-    terminal_show_cursor();
+    if (!r->is_streaming) {
+        int cursor_col = r->left_margin + 2 + 2;
+        if (r->input_line && r->input_cursor_pos >= 0) {
+            /* Count display width up to cursor position */
+            int vis = 0;
+            const char *p = r->input_line;
+            int chars = 0;
+            while (*p && chars < r->input_cursor_pos) {
+                unsigned char c = (unsigned char)*p;
+                int bytes = 1;
+                if (c >= 0xF0) bytes = 4;
+                else if (c >= 0xE0) bytes = 3;
+                else if (c >= 0xC0) bytes = 2;
+                vis++;
+                p += bytes;
+                chars++;
+            }
+            cursor_col += vis;
+        }
+        terminal_move_cursor(viewport_height, cursor_col + 1);
+        terminal_show_cursor();
+    } else {
+        terminal_hide_cursor();
+    }
 
     terminal_sync_end();
     r->dirty = false;
@@ -542,9 +558,9 @@ void lantern_renderer_render_full(LanternRenderer *r) {
 }
 
 void lantern_renderer_set_input(LanternRenderer *r, const char *text, int cursor_pos) {
-    (void)cursor_pos;
     free(r->input_line);
     r->input_line = text ? strdup(text) : NULL;
+    r->input_cursor_pos = cursor_pos;
     r->dirty = true;
 }
 
