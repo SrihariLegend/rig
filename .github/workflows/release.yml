@@ -16,9 +16,6 @@ jobs:
           - os: ubuntu-latest
             target: linux-amd64
             cc: gcc
-          - os: ubuntu-24.04-arm
-            target: linux-arm64
-            cc: gcc
           - os: macos-latest
             target: macos-arm64
             cc: clang
@@ -48,12 +45,16 @@ jobs:
           if [[ "${{ matrix.os }}" == macos* ]]; then
             OPENSSL_PREFIX="$(brew --prefix openssl@3)"
             make -j"$NPROC" CC="$CC" \
-              CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -I src -I deps -I deps/lua5.4 -I deps/libyaml -I deps/md4c -DLUA_USE_POSIX -DHAVE_CONFIG_H -I${OPENSSL_PREFIX}/include" \
-              LDFLAGS="-lcurl -lssl -lcrypto -lm -ldl -lpthread -lz -L${OPENSSL_PREFIX}/lib"
+              EXTRA_CFLAGS="-I${OPENSSL_PREFIX}/include" \
+              EXTRA_LDFLAGS="-L${OPENSSL_PREFIX}/lib"
           else
             make -j"$NPROC" CC="$CC"
           fi
-          strip rig
+          if [[ "${{ matrix.os }}" == macos* ]]; then
+            strip -x rig
+          else
+            strip rig
+          fi
 
       - name: Package
         run: |
@@ -84,6 +85,5 @@ jobs:
             --title "Rig ${{ github.ref_name }}" \
             --generate-notes \
             rig-linux-amd64 rig-linux-amd64.sha256 \
-            rig-linux-arm64 rig-linux-arm64.sha256 \
             rig-macos-arm64 rig-macos-arm64.sha256 \
             rig-macos-amd64 rig-macos-amd64.sha256

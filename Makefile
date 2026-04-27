@@ -7,10 +7,17 @@ else
   PLATFORM_DEFS = -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 endif
 
+EXTRA_CFLAGS ?=
+EXTRA_LDFLAGS ?=
+
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g $(PLATFORM_DEFS)
 CFLAGS += -I src -I deps -I deps/lua5.4 -I deps/libyaml -I deps/md4c
-CFLAGS += -DLUA_USE_POSIX -DHAVE_CONFIG_H
-LDFLAGS = -lcurl -lssl -lcrypto -lm -ldl -lpthread -lz
+CFLAGS += -DLUA_USE_POSIX -DHAVE_CONFIG_H $(EXTRA_CFLAGS)
+ifeq ($(UNAME_S),Darwin)
+  LDFLAGS = -lcurl -lssl -lcrypto -lm -lpthread -lz $(EXTRA_LDFLAGS)
+else
+  LDFLAGS = -lcurl -lssl -lcrypto -lm -ldl -lpthread -lz $(EXTRA_LDFLAGS)
+endif
 
 DEPS_SRC = deps/cjson/cJSON.c deps/md4c/md4c.c
 
