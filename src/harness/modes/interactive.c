@@ -467,6 +467,8 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
 
     case AGENT_EVENT_MESSAGE_UPDATE:
         if (!event->stream_event) break;
+        LOG_DEBUG("stream event type=%d delta=%s", event->stream_event->type,
+                  event->stream_event->delta ? "yes" : "no");
         switch (event->stream_event->type) {
         case EVENT_TEXT_DELTA:
             if (event->stream_event->delta) {
@@ -498,11 +500,6 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
             state->thinking_active = false;
             if (event->stream_event->message) {
                 state->total_tokens += event->stream_event->message->usage.total_tokens;
-            }
-            if (!event->stream_event->message) {
-                pthread_mutex_lock(&state->mutex);
-                linestore_add_error(state->store, "no response from API");
-                pthread_mutex_unlock(&state->mutex);
             }
             pthread_mutex_lock(&state->mutex);
             lantern_renderer_set_breathing(state->renderer, false, NULL);
@@ -677,14 +674,23 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
             while (!response) {
                 int ready = poll(&pfd, 1, 100);
                 if (ready > 0 && (pfd.revents & POLLIN)) {
-                    char ch[16];
+                    char ch[64];
                     ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
                     if (n > 0) {
-                        switch (ch[0]) {
+                        ch[n] = '\0';
+                        /* Parse properly — ignore mouse/escape sequences */
+                        ParsedKey pk = key_parse(ch, (int)n);
+                        if (key_matches(&pk, "mouse") || key_matches(&pk, "scrollup") ||
+                            key_matches(&pk, "scrolldown")) {
+                            continue;  /* ignore mouse events */
+                        }
+                        char c = ch[0];
+                        if (n > 1 && ch[0] == '\x1b') c = 0;  /* ignore other escape sequences */
+                        switch (c) {
                         case 'y': case 'Y': case '\r': case '\n':
                             response = 'y';
                             break;
-                        case 'n': case 'N': case '\x1b': case '\x03':
+                        case 'n': case 'N': case '\x03':
                             response = 'n';
                             break;
                         case 't': case 'T':
@@ -2389,9 +2395,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     /* Permissions — read-only tools auto-trusted */
     state->perms = permissions_create();
-    permissions_trust(state->perms, "read", NULL);
-    permissions_trust(state->perms, "grep", NULL);
-    permissions_trust(state->perms, "ls", NULL);
+    /* No auto-trust — all tools prompt by default */
     if (state->turnlog && file_max > 0) {
         state->turnlog->file_max_bytes = file_max;
     }
