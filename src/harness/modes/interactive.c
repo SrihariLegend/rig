@@ -10,6 +10,7 @@
 #include "util/log.h"
 #include "harness/turnlog.h"
 #include "harness/settings.h"
+#include "harness/extensions/lua_ext.h"
 #include "tui/lantern.h"
 #include "tui/linestore.h"
 #include "tui/lantern_render.h"
@@ -1223,6 +1224,14 @@ static bool handle_slash_command(InteractiveState *state) {
 
 static bool handle_key(InteractiveState *state, const ParsedKey *key) {
     LOG_DEBUG("KEY: id='%s' phase=%d raw_len=%d", key->id, state->phase, key->raw_len);
+    if (key_matches(key, "scrollup")) {
+        lantern_renderer_scroll_up(state->renderer, 3);
+        return true;
+    }
+    if (key_matches(key, "scrolldown")) {
+        lantern_renderer_scroll_down(state->renderer, 3);
+        return true;
+    }
     if (key_matches(key, "pageup")) {
         lantern_renderer_scroll_up(state->renderer, state->renderer->term_height - 2);
         return true;
@@ -1506,6 +1515,36 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     state->store = linestore_create();
     state->renderer = lantern_renderer_create(state->lantern, state->store);
 
+    /* Wire Lua extension context */
+    RigLuaContext lua_ctx = {
+        .agent = state->agent,
+        .store = state->store,
+        .model = state->model,
+        .api_key = state->api_key,
+        .cwd = state->cwd,
+        .mutex = &state->mutex,
+        .running = &state->running,
+    };
+    if (state->pi && state->pi->api) {
+        for (int i = 0; i < state->pi->api->extension_count; i++) {
+            Extension *ext = state->pi->api->extensions[i];
+            if (ext && ext->is_lua && ext->lua_state) {
+                lua_ext_set_context((LuaExtState *)ext->lua_state, &lua_ctx);
+            }
+        }
+    }
+
+    /* Load project-local extensions */
+    if (proj_dir) {
+        extension_discover_and_load(state->pi->api, proj_dir, NULL);
+        for (int i = 0; i < state->pi->api->extension_count; i++) {
+            Extension *ext = state->pi->api->extensions[i];
+            if (ext && ext->is_lua && ext->lua_state) {
+                lua_ext_set_context((LuaExtState *)ext->lua_state, &lua_ctx);
+            }
+        }
+    }
+
     /* Session */
     const char *sessions_dir = config_sessions_dir();
     if (session_id) {
@@ -1569,6 +1608,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     terminal_enter_raw_mode();
     terminal_enable_kitty_keyboard();
     terminal_enable_bracketed_paste();
+    terminal_enable_mouse();
 
     int tw, th;
     terminal_get_size(&tw, &th);
@@ -1628,6 +1668,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     }
 
     /* Cleanup */
+    terminal_disable_mouse();
     terminal_disable_bracketed_paste();
     terminal_disable_kitty_keyboard();
     terminal_show_cursor();

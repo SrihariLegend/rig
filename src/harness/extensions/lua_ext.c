@@ -1,5 +1,11 @@
 #include "lua_ext.h"
 #include "util/log.h"
+#include "util/str.h"
+#include "util/process.h"
+#include "util/fs.h"
+#include "agent/agent.h"
+#include "ai/registry.h"
+#include "tui/linestore.h"
 #include "cjson/cJSON.h"
 
 #include <lua5.4/lua.h>
@@ -8,42 +14,43 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <poll.h>
 
 #define LUA_MEM_LIMIT (50 * 1024 * 1024)
-#define LUA_INSTRUCTION_LIMIT 10000
+#define LUA_INSTRUCTION_LIMIT 100000000
 #define LUA_INIT_INSTRUCTION_LIMIT 1000000
 
-#define LUA_REGISTRY_API_KEY "pi_extension_api"
-#define LUA_REGISTRY_STATE_KEY "pi_lua_ext_state"
+#define REG_API_KEY   "rig_extension_api"
+#define REG_STATE_KEY "rig_lua_ext_state"
+#define REG_CTX_KEY   "rig_lua_context"
+#define REG_TOOLS_KEY "rig_lua_tools"
 
 struct LuaExtState {
     lua_State *L;
     PiExtensionAPI *api;
+    RigLuaContext *ctx;
     size_t mem_used;
     bool loaded;
+    bool sandboxed;
+    int next_hook_id;
+    pthread_mutex_t lua_mutex;
 };
 
 /* ============================================================
- *  Memory allocator with tracking
+ *  Memory allocator
  * ============================================================ */
 
 static void *lua_alloc_tracked(void *ud, void *ptr, size_t osize, size_t nsize) {
     LuaExtState *state = (LuaExtState *)ud;
-
     if (nsize == 0) {
         state->mem_used -= osize;
         free(ptr);
         return NULL;
     }
-
-    if (state->mem_used - osize + nsize > LUA_MEM_LIMIT) {
-        return NULL;
-    }
-
+    if (state->mem_used - osize + nsize > LUA_MEM_LIMIT) return NULL;
     void *new_ptr = realloc(ptr, nsize);
-    if (new_ptr) {
-        state->mem_used = state->mem_used - osize + nsize;
-    }
+    if (new_ptr) state->mem_used = state->mem_used - osize + nsize;
     return new_ptr;
 }
 
@@ -57,58 +64,37 @@ static void lua_hook_count(lua_State *L, lua_Debug *ar) {
  * ============================================================ */
 
 static void sandbox_lua(lua_State *L) {
-    lua_pushnil(L);
-    lua_setglobal(L, "os");
-    lua_pushnil(L);
-    lua_setglobal(L, "io");
-    lua_pushnil(L);
-    lua_setglobal(L, "loadfile");
-    lua_pushnil(L);
-    lua_setglobal(L, "dofile");
-    lua_pushnil(L);
-    lua_setglobal(L, "debug");
-
+    lua_pushnil(L); lua_setglobal(L, "os");
+    lua_pushnil(L); lua_setglobal(L, "io");
+    lua_pushnil(L); lua_setglobal(L, "loadfile");
+    lua_pushnil(L); lua_setglobal(L, "dofile");
+    lua_pushnil(L); lua_setglobal(L, "debug");
     luaL_dostring(L, "package.cpath = ''");
     luaL_dostring(L, "package.loadlib = nil");
 }
 
 /* ============================================================
- *  cJSON <-> Lua table conversion
+ *  cJSON <-> Lua
  * ============================================================ */
 
-static void push_cjson_to_lua(lua_State *L, cJSON *json) {
-    if (!json || cJSON_IsNull(json)) {
-        lua_pushnil(L);
-        return;
-    }
-    if (cJSON_IsBool(json)) {
-        lua_pushboolean(L, cJSON_IsTrue(json));
-        return;
-    }
-    if (cJSON_IsNumber(json)) {
-        lua_pushnumber(L, json->valuedouble);
-        return;
-    }
-    if (cJSON_IsString(json)) {
-        lua_pushstring(L, json->valuestring);
-        return;
-    }
+static void push_cjson(lua_State *L, cJSON *json) {
+    if (!json || cJSON_IsNull(json)) { lua_pushnil(L); return; }
+    if (cJSON_IsBool(json)) { lua_pushboolean(L, cJSON_IsTrue(json)); return; }
+    if (cJSON_IsNumber(json)) { lua_pushnumber(L, json->valuedouble); return; }
+    if (cJSON_IsString(json)) { lua_pushstring(L, json->valuestring); return; }
     if (cJSON_IsArray(json)) {
         lua_newtable(L);
         int idx = 1;
-        cJSON *item = NULL;
-        cJSON_ArrayForEach(item, json) {
-            push_cjson_to_lua(L, item);
-            lua_rawseti(L, -2, idx++);
-        }
+        cJSON *item;
+        cJSON_ArrayForEach(item, json) { push_cjson(L, item); lua_rawseti(L, -2, idx++); }
         return;
     }
     if (cJSON_IsObject(json)) {
         lua_newtable(L);
-        cJSON *item = NULL;
+        cJSON *item;
         cJSON_ArrayForEach(item, json) {
             lua_pushstring(L, item->string);
-            push_cjson_to_lua(L, item);
+            push_cjson(L, item);
             lua_rawset(L, -3);
         }
         return;
@@ -119,23 +105,16 @@ static void push_cjson_to_lua(lua_State *L, cJSON *json) {
 static cJSON *lua_to_cjson(lua_State *L, int idx) {
     int t = lua_type(L, idx);
     switch (t) {
-    case LUA_TNIL:
-        return cJSON_CreateNull();
-    case LUA_TBOOLEAN:
-        return lua_toboolean(L, idx) ? cJSON_CreateTrue() : cJSON_CreateFalse();
+    case LUA_TNIL: return cJSON_CreateNull();
+    case LUA_TBOOLEAN: return lua_toboolean(L, idx) ? cJSON_CreateTrue() : cJSON_CreateFalse();
     case LUA_TNUMBER:
-        if (lua_isinteger(L, idx)) {
-            return cJSON_CreateNumber((double)lua_tointeger(L, idx));
-        }
+        if (lua_isinteger(L, idx)) return cJSON_CreateNumber((double)lua_tointeger(L, idx));
         return cJSON_CreateNumber(lua_tonumber(L, idx));
-    case LUA_TSTRING:
-        return cJSON_CreateString(lua_tostring(L, idx));
+    case LUA_TSTRING: return cJSON_CreateString(lua_tostring(L, idx));
     case LUA_TTABLE: {
-        /* Detect array vs object: check if key 1 exists */
         lua_rawgeti(L, idx, 1);
         bool is_array = !lua_isnil(L, -1);
         lua_pop(L, 1);
-
         if (is_array) {
             cJSON *arr = cJSON_CreateArray();
             int len = (int)lua_rawlen(L, idx);
@@ -146,74 +125,582 @@ static cJSON *lua_to_cjson(lua_State *L, int idx) {
             }
             return arr;
         }
-
         cJSON *obj = cJSON_CreateObject();
-        int abs_idx = lua_absindex(L, idx);
+        int abs = lua_absindex(L, idx);
         lua_pushnil(L);
-        while (lua_next(L, abs_idx) != 0) {
-            if (lua_type(L, -2) == LUA_TSTRING) {
-                const char *key = lua_tostring(L, -2);
-                cJSON_AddItemToObject(obj, key, lua_to_cjson(L, lua_gettop(L)));
-            }
+        while (lua_next(L, abs) != 0) {
+            if (lua_type(L, -2) == LUA_TSTRING)
+                cJSON_AddItemToObject(obj, lua_tostring(L, -2), lua_to_cjson(L, lua_gettop(L)));
             lua_pop(L, 1);
         }
         return obj;
     }
-    default:
-        return cJSON_CreateNull();
+    default: return cJSON_CreateNull();
     }
 }
 
 /* ============================================================
- *  Helper: retrieve API/State from Lua registry
+ *  Registry helpers
  * ============================================================ */
 
-static PiExtensionAPI *get_api_from_lua(lua_State *L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_API_KEY);
+static PiExtensionAPI *get_api(lua_State *L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, REG_API_KEY);
     PiExtensionAPI *api = (PiExtensionAPI *)lua_touserdata(L, -1);
     lua_pop(L, 1);
     return api;
 }
 
-static LuaExtState *get_state_from_lua(lua_State *L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_STATE_KEY);
+static LuaExtState *get_state(lua_State *L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, REG_STATE_KEY);
     LuaExtState *st = (LuaExtState *)lua_touserdata(L, -1);
     lua_pop(L, 1);
     return st;
 }
 
+static RigLuaContext *get_ctx(lua_State *L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, REG_CTX_KEY);
+    RigLuaContext *ctx = (RigLuaContext *)lua_touserdata(L, -1);
+    lua_pop(L, 1);
+    return ctx;
+}
+
 /* ============================================================
- *  JSON encode/decode (kept from original)
+ *  Primitive 1: rig.exec(cmd, opts?) → {ok, stdout, exit_code, timed_out}
+ * ============================================================ */
+
+static void exec_collect(const char *data, size_t len, void *ctx) {
+    str_append_len((Str *)ctx, data, len);
+}
+
+static int lua_rig_exec(lua_State *L) {
+    const char *cmd = luaL_checkstring(L, 1);
+    RigLuaContext *ctx = get_ctx(L);
+
+    int timeout = 30000;
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "timeout");
+        if (lua_isinteger(L, -1)) timeout = (int)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+
+    Str out = str_new(4096);
+    ProcessOptions opts = {
+        .command = cmd,
+        .cwd = ctx ? ctx->cwd : NULL,
+        .timeout_ms = timeout,
+        .on_stdout = exec_collect,
+        .on_stderr = exec_collect,
+        .ctx = &out,
+    };
+    ProcessResult result;
+    process_run(&opts, &result);
+
+    lua_newtable(L);
+    lua_pushboolean(L, result.exit_code == 0);
+    lua_setfield(L, -2, "ok");
+    lua_pushstring(L, out.data ? out.data : "");
+    lua_setfield(L, -2, "stdout");
+    lua_pushinteger(L, result.exit_code);
+    lua_setfield(L, -2, "exit_code");
+    lua_pushboolean(L, result.timed_out);
+    lua_setfield(L, -2, "timed_out");
+
+    str_free(&out);
+    return 1;
+}
+
+/* ============================================================
+ *  Primitive 2: rig.completion(params) → string
+ * ============================================================ */
+
+typedef struct {
+    Str *text;
+    bool done;
+} CompletionBridge;
+
+static void completion_stream_cb(StreamEvent *event, void *ud) {
+    CompletionBridge *b = (CompletionBridge *)ud;
+    if (event->type == EVENT_TEXT_DELTA && event->delta) {
+        str_append(b->text, event->delta);
+    }
+    if (event->type == EVENT_DONE) {
+        b->done = true;
+    }
+    if (event->type == EVENT_ERROR && event->error_message) {
+        str_append(b->text, "[error: ");
+        str_append(b->text, event->error_message);
+        str_append(b->text, "]");
+        b->done = true;
+    }
+}
+
+static int lua_rig_completion(lua_State *L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    RigLuaContext *ctx = get_ctx(L);
+    if (!ctx || !ctx->model || !ctx->api_key)
+        return luaL_error(L, "no model/key configured");
+
+    lua_getfield(L, 1, "system");
+    const char *system_prompt = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "messages");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return luaL_error(L, "completion requires 'messages' table");
+    }
+
+    int msg_count = (int)lua_rawlen(L, -1);
+    Message **messages = calloc(msg_count > 0 ? msg_count : 1, sizeof(Message *));
+    if (!messages) { lua_pop(L, 1); return luaL_error(L, "out of memory"); }
+
+    int actual_count = 0;
+    for (int i = 1; i <= msg_count; i++) {
+        lua_rawgeti(L, -1, i);
+        lua_getfield(L, -1, "role");
+        lua_getfield(L, -2, "content");
+        const char *role = lua_tostring(L, -2);
+        const char *content = lua_tostring(L, -1);
+        lua_pop(L, 3);
+
+        if (!role || !content) continue;
+        Message *msg = NULL;
+        if (strcmp(role, "user") == 0) {
+            msg = message_create_user(content);
+        } else if (strcmp(role, "assistant") == 0) {
+            msg = message_create_assistant();
+            if (msg) message_add_content(msg, content_text(content, NULL));
+        }
+        if (msg) messages[actual_count++] = msg;
+    }
+    lua_pop(L, 1);
+
+    const Model *model = ctx->model;
+    Str response = str_new(4096);
+    CompletionBridge bridge = { .text = &response, .done = false };
+
+    int max_tokens = model->max_tokens;
+    lua_getfield(L, 1, "max_tokens");
+    if (lua_isinteger(L, -1)) max_tokens = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    /* Flatten Message** to Message* (shallow copy for ai_stream_simple) */
+    Message *flat = NULL;
+    if (actual_count > 0) {
+        flat = malloc((size_t)actual_count * sizeof(Message));
+        for (int i = 0; i < actual_count; i++) flat[i] = *messages[i];
+    }
+
+    SimpleStreamOptions sopts = {
+        .base = {
+            .temperature = -1.0,
+            .max_tokens = max_tokens,
+            .api_key = ctx->api_key,
+            .timeout_ms = 120000,
+        },
+        .reasoning = THINKING_OFF,
+    };
+
+    ai_stream_simple(model, flat, actual_count,
+                     system_prompt, NULL, 0,
+                     &sopts, completion_stream_cb, &bridge);
+
+    free(flat);
+    for (int i = 0; i < actual_count; i++) message_free(messages[i]);
+    free(messages);
+
+    lua_pushstring(L, response.data ? response.data : "");
+    str_free(&response);
+    return 1;
+}
+
+/* ============================================================
+ *  Primitive 3: rig.print(text, opts?)
+ * ============================================================ */
+
+static int lua_rig_print(lua_State *L) {
+    const char *text = luaL_checkstring(L, 1);
+    RigLuaContext *ctx = get_ctx(L);
+    if (!ctx || !ctx->store) return luaL_error(L, "no TUI context");
+
+    LineStore *store = (LineStore *)ctx->store;
+    bool is_error = false;
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "error");
+        is_error = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+    }
+
+    if (ctx->mutex) pthread_mutex_lock(ctx->mutex);
+    if (is_error) linestore_add_error(store, text);
+    else linestore_add_system(store, text);
+    if (ctx->mutex) pthread_mutex_unlock(ctx->mutex);
+
+    return 0;
+}
+
+/* ============================================================
+ *  Primitive 4: rig.input(prompt) → string
+ * ============================================================ */
+
+static int lua_rig_input(lua_State *L) {
+    const char *prompt = luaL_optstring(L, 1, "> ");
+    RigLuaContext *ctx = get_ctx(L);
+    if (!ctx || !ctx->store) return luaL_error(L, "no TUI context");
+
+    LineStore *store = (LineStore *)ctx->store;
+    if (ctx->mutex) pthread_mutex_lock(ctx->mutex);
+    linestore_add_system(store, prompt);
+    if (ctx->mutex) pthread_mutex_unlock(ctx->mutex);
+
+    Str input = str_new(256);
+    struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+
+    while (1) {
+        int ready = poll(&pfd, 1, 100);
+        if (ready > 0 && (pfd.revents & POLLIN)) {
+            char ch;
+            ssize_t n = read(STDIN_FILENO, &ch, 1);
+            if (n <= 0) break;
+            if (ch == '\r' || ch == '\n') break;
+            if (ch == '\x03') {
+                str_free(&input);
+                lua_pushnil(L);
+                return 1;
+            }
+            if (ch == 127 || ch == '\b') {
+                if (input.len > 0) input.len--;
+                continue;
+            }
+            if (ch >= 32) str_append_char(&input, ch);
+        }
+    }
+
+    if (input.data) input.data[input.len] = '\0';
+    lua_pushstring(L, input.data ? input.data : "");
+    str_free(&input);
+    return 1;
+}
+
+/* ============================================================
+ *  Primitive 5: rig.hook(event, fn, priority?) → handle
+ * ============================================================ */
+
+typedef struct { lua_State *L; int ref; pthread_mutex_t *lua_mutex; } LuaHookCtx;
+
+static bool lua_hook_bridge(const char *event, cJSON *data,
+                            cJSON **result, void *ud) {
+    LuaHookCtx *hctx = (LuaHookCtx *)ud;
+    if (hctx->lua_mutex) pthread_mutex_lock(hctx->lua_mutex);
+
+    lua_rawgeti(hctx->L, LUA_REGISTRYINDEX, hctx->ref);
+    lua_pushstring(hctx->L, event);
+    push_cjson(hctx->L, data);
+
+    bool ok = true;
+    if (lua_pcall(hctx->L, 2, 1, 0) != LUA_OK) {
+        LOG_ERROR("[lua] hook error: %s", lua_tostring(hctx->L, -1));
+        lua_pop(hctx->L, 1);
+    } else {
+        if (lua_isboolean(hctx->L, -1)) ok = lua_toboolean(hctx->L, -1);
+        else if (lua_istable(hctx->L, -1) && result) *result = lua_to_cjson(hctx->L, -1);
+        lua_pop(hctx->L, 1);
+    }
+
+    if (hctx->lua_mutex) pthread_mutex_unlock(hctx->lua_mutex);
+    return ok;
+}
+
+static int lua_rig_hook(lua_State *L) {
+    PiExtensionAPI *api = get_api(L);
+    LuaExtState *st = get_state(L);
+    if (!api) return luaL_error(L, "no api");
+
+    const char *event = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    int priority = (int)luaL_optinteger(L, 3, 100);
+
+    lua_pushvalue(L, 2);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    LuaHookCtx *hctx = malloc(sizeof(LuaHookCtx));
+    if (!hctx) return luaL_error(L, "out of memory");
+    hctx->L = L;
+    hctx->ref = ref;
+    hctx->lua_mutex = &st->lua_mutex;
+
+    char name[64];
+    snprintf(name, sizeof(name), "lua_hook_%d", ++st->next_hook_id);
+    hook_chain_add(api->hooks, event, priority, lua_hook_bridge, hctx, name);
+
+    lua_pushstring(L, name);
+    return 1;
+}
+
+/* ============================================================
+ *  Primitive 6: rig.unhook(handle) → bool
+ * ============================================================ */
+
+static int lua_rig_unhook(lua_State *L) {
+    PiExtensionAPI *api = get_api(L);
+    if (!api) return luaL_error(L, "no api");
+    const char *name = luaL_checkstring(L, 1);
+    lua_pushboolean(L, hook_chain_remove(api->hooks, name) == 0);
+    return 1;
+}
+
+/* ============================================================
+ *  Primitive 7: rig.get(ns, key?) → value
+ * ============================================================ */
+
+static int lua_rig_get(lua_State *L) {
+    const char *ns = luaL_checkstring(L, 1);
+    const char *key = luaL_optstring(L, 2, NULL);
+    RigLuaContext *ctx = get_ctx(L);
+    PiExtensionAPI *api = get_api(L);
+
+    if (strcmp(ns, "config") == 0) {
+        if (!key) {
+            lua_newtable(L);
+            if (ctx && ctx->model) {
+                lua_pushstring(L, ctx->model->name); lua_setfield(L, -2, "model");
+                lua_pushstring(L, ctx->model->id); lua_setfield(L, -2, "model_id");
+                lua_pushstring(L, ctx->model->provider); lua_setfield(L, -2, "provider");
+                lua_pushinteger(L, ctx->model->context_window); lua_setfield(L, -2, "context_window");
+            }
+            if (ctx && ctx->cwd) { lua_pushstring(L, ctx->cwd); lua_setfield(L, -2, "cwd"); }
+            return 1;
+        }
+        if (ctx && ctx->model) {
+            if (strcmp(key, "model") == 0) { lua_pushstring(L, ctx->model->name); return 1; }
+            if (strcmp(key, "model_id") == 0) { lua_pushstring(L, ctx->model->id); return 1; }
+            if (strcmp(key, "provider") == 0) { lua_pushstring(L, ctx->model->provider); return 1; }
+        }
+        if (ctx && ctx->cwd && strcmp(key, "cwd") == 0) { lua_pushstring(L, ctx->cwd); return 1; }
+        lua_pushnil(L); return 1;
+    }
+
+    if (strcmp(ns, "messages") == 0) {
+        if (!ctx || !ctx->agent) { lua_pushnil(L); return 1; }
+        if (key && strcmp(key, "count") == 0) {
+            lua_pushinteger(L, ctx->agent->message_count); return 1;
+        }
+        lua_newtable(L);
+        for (int i = 0; i < ctx->agent->message_count; i++) {
+            Message *m = ctx->agent->messages[i];
+            lua_newtable(L);
+            const char *role = m->role == ROLE_USER ? "user" :
+                               m->role == ROLE_ASSISTANT ? "assistant" :
+                               m->role == ROLE_TOOL_RESULT ? "tool_result" : "unknown";
+            lua_pushstring(L, role); lua_setfield(L, -2, "role");
+            Str text = str_new(256);
+            for (int j = 0; j < m->content_count; j++) {
+                if (m->content[j].type == CONTENT_TEXT && m->content[j].text.text)
+                    str_append(&text, m->content[j].text.text);
+            }
+            lua_pushstring(L, text.data ? text.data : "");
+            lua_setfield(L, -2, "content");
+            str_free(&text);
+            lua_rawseti(L, -2, i + 1);
+        }
+        return 1;
+    }
+
+    if (strcmp(ns, "tools") == 0) {
+        if (!api) { lua_pushnil(L); return 1; }
+        if (key) {
+            Tool *t = extension_api_get_tool(api, key);
+            if (t) {
+                lua_newtable(L);
+                lua_pushstring(L, t->name); lua_setfield(L, -2, "name");
+                if (t->description) { lua_pushstring(L, t->description); lua_setfield(L, -2, "description"); }
+                return 1;
+            }
+            lua_pushnil(L); return 1;
+        }
+        lua_newtable(L);
+        for (int i = 0; i < api->tool_count; i++) {
+            if (api->tools[i]) {
+                lua_pushstring(L, api->tools[i]->name);
+                lua_rawseti(L, -2, i + 1);
+            }
+        }
+        return 1;
+    }
+
+    if (strcmp(ns, "settings") == 0) {
+        if (api && api->settings) {
+            push_cjson(L, key ? cJSON_GetObjectItem(api->settings, key) : api->settings);
+        } else { lua_pushnil(L); }
+        return 1;
+    }
+
+    if (strcmp(ns, "state") == 0) {
+        if (api && api->state) {
+            push_cjson(L, key ? cJSON_GetObjectItem(api->state, key) : api->state);
+        } else { lua_pushnil(L); }
+        return 1;
+    }
+
+    lua_pushnil(L); return 1;
+}
+
+/* ============================================================
+ *  Primitive 8: rig.set(ns, key, value)
+ * ============================================================ */
+
+/* Command bridge for Lua-registered slash commands */
+typedef struct { lua_State *L; int ref; pthread_mutex_t *lua_mutex; } LuaCmdCtx;
+
+static int lua_cmd_bridge(const char **args, int argc, void *ud) {
+    LuaCmdCtx *c = (LuaCmdCtx *)ud;
+    if (c->lua_mutex) pthread_mutex_lock(c->lua_mutex);
+
+    lua_rawgeti(c->L, LUA_REGISTRYINDEX, c->ref);
+    lua_newtable(c->L);
+    for (int i = 0; i < argc; i++) {
+        lua_pushstring(c->L, args[i]);
+        lua_rawseti(c->L, -2, i + 1);
+    }
+    int rc = 0;
+    if (lua_pcall(c->L, 1, 0, 0) != LUA_OK) {
+        LOG_ERROR("[lua] command error: %s", lua_tostring(c->L, -1));
+        lua_pop(c->L, 1);
+        rc = -1;
+    }
+
+    if (c->lua_mutex) pthread_mutex_unlock(c->lua_mutex);
+    return rc;
+}
+
+static int lua_rig_set(lua_State *L) {
+    const char *ns = luaL_checkstring(L, 1);
+    const char *key = luaL_checkstring(L, 2);
+    PiExtensionAPI *api = get_api(L);
+    RigLuaContext *ctx = get_ctx(L);
+    LuaExtState *st = get_state(L);
+
+    if (strcmp(ns, "tools") == 0) {
+        if (!api) return luaL_error(L, "no api");
+        if (lua_isnil(L, 3)) {
+            extension_api_unregister_tool(api, key);
+            return 0;
+        }
+        luaL_checktype(L, 3, LUA_TTABLE);
+
+        lua_getfield(L, 3, "description");
+        const char *desc = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "params");
+        cJSON *params = lua_istable(L, -1) ? lua_to_cjson(L, -1) : cJSON_CreateObject();
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "run");
+        if (lua_isfunction(L, -1)) {
+            int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+            lua_getfield(L, LUA_REGISTRYINDEX, REG_TOOLS_KEY);
+            if (lua_isnil(L, -1)) {
+                lua_pop(L, 1);
+                lua_newtable(L);
+                lua_pushvalue(L, -1);
+                lua_setfield(L, LUA_REGISTRYINDEX, REG_TOOLS_KEY);
+            }
+            lua_pushinteger(L, ref);
+            lua_setfield(L, -2, key);
+            lua_pop(L, 1);
+        } else {
+            lua_pop(L, 1);
+        }
+
+        extension_api_unregister_tool(api, key);
+        Tool *tool = calloc(1, sizeof(Tool));
+        if (!tool) { cJSON_Delete(params); return luaL_error(L, "out of memory"); }
+        tool->name = strdup(key);
+        tool->description = strdup(desc);
+        tool->parameters = params;
+        extension_api_register_tool(api, tool);
+        return 0;
+    }
+
+    if (strcmp(ns, "commands") == 0) {
+        if (!api) return luaL_error(L, "no api");
+        if (lua_isnil(L, 3)) return 0;
+        luaL_checktype(L, 3, LUA_TFUNCTION);
+
+        lua_pushvalue(L, 3);
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+        LuaCmdCtx *cctx = malloc(sizeof(LuaCmdCtx));
+        if (!cctx) return luaL_error(L, "out of memory");
+        cctx->L = L;
+        cctx->ref = ref;
+        cctx->lua_mutex = &st->lua_mutex;
+
+        extension_api_register_command(api, key, lua_cmd_bridge, cctx);
+        return 0;
+    }
+
+    if (strcmp(ns, "messages") == 0) {
+        if (!ctx || !ctx->agent) return luaL_error(L, "no agent");
+        if (strcmp(key, "append") == 0) {
+            luaL_checktype(L, 3, LUA_TTABLE);
+            lua_getfield(L, 3, "role");
+            lua_getfield(L, 3, "content");
+            const char *role = lua_tostring(L, -2);
+            const char *content = lua_tostring(L, -1);
+            lua_pop(L, 2);
+            if (!role || !content) return luaL_error(L, "message needs role and content");
+
+            Message *msg = NULL;
+            if (strcmp(role, "user") == 0) msg = message_create_user(content);
+            else if (strcmp(role, "assistant") == 0) {
+                msg = message_create_assistant();
+                if (msg) message_add_content(msg, content_text(content, NULL));
+            }
+            if (msg) agent_state_add_message(ctx->agent, msg);
+            return 0;
+        }
+        if (strcmp(key, "clear") == 0) {
+            agent_state_reset(ctx->agent);
+            return 0;
+        }
+        return 0;
+    }
+
+    if (strcmp(ns, "config") == 0) {
+        return luaL_error(L, "config.%s is read-only from extensions", key);
+    }
+
+    if (strcmp(ns, "settings") == 0) {
+        if (api && api->settings) {
+            cJSON *old = cJSON_DetachItemFromObject(api->settings, key);
+            if (old) cJSON_Delete(old);
+            if (!lua_isnil(L, 3)) cJSON_AddItemToObject(api->settings, key, lua_to_cjson(L, 3));
+        }
+        return 0;
+    }
+
+    if (strcmp(ns, "state") == 0) {
+        if (api && api->state) {
+            cJSON *old = cJSON_DetachItemFromObject(api->state, key);
+            if (old) cJSON_Delete(old);
+            if (!lua_isnil(L, 3)) cJSON_AddItemToObject(api->state, key, lua_to_cjson(L, 3));
+        }
+        return 0;
+    }
+
+    return luaL_error(L, "unknown namespace: %s", ns);
+}
+
+/* ============================================================
+ *  JSON utilities
  * ============================================================ */
 
 static int lua_json_encode(lua_State *L) {
-    if (!lua_istable(L, 1) && !lua_isstring(L, 1) && !lua_isnumber(L, 1)) {
-        lua_pushstring(L, "null");
-        return 1;
-    }
-
-    if (lua_isstring(L, 1)) {
-        cJSON *j = cJSON_CreateString(lua_tostring(L, 1));
-        char *s = cJSON_PrintUnformatted(j);
-        lua_pushstring(L, s);
-        free(s);
-        cJSON_Delete(j);
-        return 1;
-    }
-
-    if (lua_isnumber(L, 1)) {
-        cJSON *j = cJSON_CreateNumber(lua_tonumber(L, 1));
-        char *s = cJSON_PrintUnformatted(j);
-        lua_pushstring(L, s);
-        free(s);
-        cJSON_Delete(j);
-        return 1;
-    }
-
-    /* table */
     cJSON *j = lua_to_cjson(L, 1);
     char *s = cJSON_PrintUnformatted(j);
-    lua_pushstring(L, s);
+    lua_pushstring(L, s ? s : "null");
     free(s);
     cJSON_Delete(j);
     return 1;
@@ -222,531 +709,50 @@ static int lua_json_encode(lua_State *L) {
 static int lua_json_decode(lua_State *L) {
     const char *str = luaL_checkstring(L, 1);
     cJSON *json = cJSON_Parse(str);
-    if (!json) {
-        lua_pushnil(L);
-        return 1;
-    }
-
-    push_cjson_to_lua(L, json);
+    if (!json) { lua_pushnil(L); return 1; }
+    push_cjson(L, json);
     cJSON_Delete(json);
     return 1;
 }
 
 /* ============================================================
- *  Hook bridge: C callback that pcalls the Lua handler
+ *  Register the rig global
  * ============================================================ */
 
-typedef struct {
-    lua_State *L;
-    int ref;
-} LuaHookCtx;
-
-static bool lua_hook_bridge(const char *event, cJSON *data,
-                            cJSON **result, void *ctx) {
-    LuaHookCtx *hctx = (LuaHookCtx *)ctx;
-    lua_State *L = hctx->L;
-
-    lua_sethook(L, lua_hook_count, LUA_MASKCOUNT, LUA_INSTRUCTION_LIMIT);
-
-    lua_rawgeti(L, LUA_REGISTRYINDEX, hctx->ref);
-    lua_pushstring(L, event);
-    push_cjson_to_lua(L, data);
-
-    bool ok = true;
-    if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
-        LOG_ERROR("Lua hook error: %s", lua_tostring(L, -1));
-        lua_pop(L, 1);
-        ok = true; /* don't block chain on lua error */
-    } else {
-        if (lua_isboolean(L, -1)) {
-            ok = lua_toboolean(L, -1);
-        } else if (lua_istable(L, -1) && result) {
-            *result = lua_to_cjson(L, -1);
-        }
-        lua_pop(L, 1);
-    }
-
-    lua_sethook(L, NULL, 0, 0);
-    return ok;
-}
-
-/* ============================================================
- *  pi:on(event, handler)
- * ============================================================ */
-
-static int lua_pi_on(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api) return luaL_error(L, "no api");
-
-    const char *event = luaL_checkstring(L, 2);
-    luaL_checktype(L, 3, LUA_TFUNCTION);
-
-    lua_pushvalue(L, 3);
-    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-    LuaHookCtx *hctx = malloc(sizeof(LuaHookCtx));
-    if (!hctx) return luaL_error(L, "out of memory");
-    hctx->L = L;
-    hctx->ref = ref;
-
-    char name[64];
-    snprintf(name, sizeof(name), "lua_hook_%d", ref);
-
-    hook_chain_add(api->hooks, event, 100, lua_hook_bridge, hctx, name);
-    return 0;
-}
-
-/* ============================================================
- *  pi:on_priority(event, priority, handler)
- * ============================================================ */
-
-static int lua_pi_on_priority(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api) return luaL_error(L, "no api");
-
-    const char *event = luaL_checkstring(L, 2);
-    int priority = (int)luaL_checkinteger(L, 3);
-    luaL_checktype(L, 4, LUA_TFUNCTION);
-
-    lua_pushvalue(L, 4);
-    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-    LuaHookCtx *hctx = malloc(sizeof(LuaHookCtx));
-    if (!hctx) return luaL_error(L, "out of memory");
-    hctx->L = L;
-    hctx->ref = ref;
-
-    char name[64];
-    snprintf(name, sizeof(name), "lua_hook_%d", ref);
-
-    hook_chain_add(api->hooks, event, priority, lua_hook_bridge, hctx, name);
-    return 0;
-}
-
-/* ============================================================
- *  Command bridge
- * ============================================================ */
-
-typedef struct {
-    lua_State *L;
-    int ref;
-} LuaCmdCtx;
-
-static int lua_cmd_bridge(const char **args, int argc, void *ctx) {
-    LuaCmdCtx *cctx = (LuaCmdCtx *)ctx;
-    lua_State *L = cctx->L;
-
-    lua_sethook(L, lua_hook_count, LUA_MASKCOUNT, LUA_INSTRUCTION_LIMIT);
-
-    lua_rawgeti(L, LUA_REGISTRYINDEX, cctx->ref);
-    lua_newtable(L);
-    for (int i = 0; i < argc; i++) {
-        lua_pushstring(L, args[i]);
-        lua_rawseti(L, -2, i + 1);
-    }
-
-    int rc = 0;
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        LOG_ERROR("Lua command error: %s", lua_tostring(L, -1));
-        lua_pop(L, 1);
-        rc = -1;
-    } else {
-        if (lua_isinteger(L, -1)) {
-            rc = (int)lua_tointeger(L, -1);
-        }
-        lua_pop(L, 1);
-    }
-
-    lua_sethook(L, NULL, 0, 0);
-    return rc;
-}
-
-/* ============================================================
- *  pi:register_command(name, handler)
- * ============================================================ */
-
-static int lua_pi_register_command(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api) return luaL_error(L, "no api");
-
-    const char *name = luaL_checkstring(L, 2);
-    luaL_checktype(L, 3, LUA_TFUNCTION);
-
-    lua_pushvalue(L, 3);
-    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-    LuaCmdCtx *cctx = malloc(sizeof(LuaCmdCtx));
-    if (!cctx) return luaL_error(L, "out of memory");
-    cctx->L = L;
-    cctx->ref = ref;
-
-    extension_api_register_command(api, name, lua_cmd_bridge, cctx);
-    return 0;
-}
-
-/* ============================================================
- *  Tool bridge
- * ============================================================ */
-
-typedef struct {
-    lua_State *L;
-    int ref;
-} LuaToolCtx;
-
-static int lua_tool_execute(const char *call_id, cJSON *params, void *signal,
-                            void (*on_update)(void *ctx, cJSON *partial),
-                            void *ctx, ContentBlock **content,
-                            int *content_count, cJSON **details,
-                            bool *terminate) {
-    (void)call_id; (void)signal; (void)on_update; (void)ctx;
-    (void)content; (void)content_count; (void)details; (void)terminate;
-
-    /* Recover the LuaToolCtx from the tool's description field (hacky but
-     * avoids modifying Tool struct). We store the ctx pointer in the tool's
-     * execute closure context. But Tool doesn't have a ctx field for execute.
-     *
-     * Instead, we use a static lookup. The tool name is in call_id-adjacent
-     * data but we don't have it here. We'll use a different approach:
-     * store the context pointer as a light userdata in a global map keyed by
-     * the Tool pointer. For simplicity, we embed the context pointer right
-     * after the Tool allocation.
-     *
-     * Actually, the simplest approach: we allocate a struct that contains both
-     * Tool and context, and cast. But that's fragile.
-     *
-     * Simplest working approach: the LuaToolCtx is stored in a linked list,
-     * and we match by the execute function pointer address? No, all tools
-     * share the same function.
-     *
-     * Best approach: create a unique execute function per tool via a trampoline
-     * that embeds the context. But in C we can't create closures at runtime.
-     *
-     * Practical approach: store LuaToolCtx pointer in the Tool's parameters
-     * JSON as a special field, or use the Tool's label field to stash it.
-     *
-     * Actually the cleanest approach: we'll store all lua tool contexts in an
-     * array on the LuaExtState, and on execute we'll look up by tool name.
-     * But we don't have the tool name in execute...
-     *
-     * We do have call_id and details. Let's just not use the Tool.execute
-     * mechanism. Instead, register a hook on "tool:*" that intercepts.
-     *
-     * OR: the simplest approach is to NOT use Tool.execute at all. We register
-     * the tool for metadata only, and handle execution via the hook system.
-     * But the task says "register_tool ... handler gets params table, returns
-     * result string".
-     *
-     * Let's use a different approach: we DON'T set Tool.execute. Instead we
-     * store Lua tool handlers separately and provide a lookup function.
-     * For the test, we verify the tool is registered and can be found, and
-     * that the lua handler can be called directly.
-     */
-
-    return 0;
-}
-
-/* We store lua tool handlers in a simple registry on LuaExtState */
-typedef struct LuaToolEntry {
-    char *name;
-    int ref;
-    struct LuaToolEntry *next;
-} LuaToolEntry;
-
-/* Forward declaration - we'll add tool_handlers to LuaExtState later.
- * For now, store in Lua registry under a known key. */
-#define LUA_REGISTRY_TOOLS_KEY "pi_lua_tools"
-
-static int lua_pi_register_tool(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api) return luaL_error(L, "no api");
-
-    const char *name = luaL_checkstring(L, 2);
-    const char *description = luaL_checkstring(L, 3);
-    const char *schema_json = luaL_checkstring(L, 4);
-    luaL_checktype(L, 5, LUA_TFUNCTION);
-
-    /* Store handler ref */
-    lua_pushvalue(L, 5);
-    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-    /* Store ref in the tools table: pi_lua_tools[name] = ref */
-    lua_getfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_TOOLS_KEY);
-    if (lua_isnil(L, -1)) {
-        lua_pop(L, 1);
-        lua_newtable(L);
-        lua_pushvalue(L, -1);
-        lua_setfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_TOOLS_KEY);
-    }
-    lua_pushinteger(L, ref);
-    lua_setfield(L, -2, name);
-    lua_pop(L, 1);
-
-    /* Create and register the Tool with the API */
-    Tool *tool = calloc(1, sizeof(Tool));
-    if (!tool) return luaL_error(L, "out of memory");
-
-    tool->name = strdup(name);
-    tool->description = strdup(description);
-    if (!tool->name || !tool->description) {
-        free(tool->name);
-        free(tool->description);
-        free(tool);
-        return luaL_error(L, "out of memory");
-    }
-
-    cJSON *params = cJSON_Parse(schema_json);
-    tool->parameters = params ? params : cJSON_CreateObject();
-
-    extension_api_register_tool(api, tool);
-    return 0;
-}
-
-/* Call a lua tool handler by name, used by extension.c or tests */
-static int lua_ext_call_tool(LuaExtState *state, const char *name,
-                              cJSON *params, char **result) {
-    if (!state || !name || !state->L) return -1;
-    lua_State *L = state->L;
-
-    lua_getfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_TOOLS_KEY);
-    if (lua_isnil(L, -1)) {
-        lua_pop(L, 1);
-        return -1;
-    }
-    lua_getfield(L, -1, name);
-    if (lua_isnil(L, -1)) {
-        lua_pop(L, 2);
-        return -1;
-    }
-    int ref = (int)lua_tointeger(L, -1);
-    lua_pop(L, 2);
-
-    lua_sethook(L, lua_hook_count, LUA_MASKCOUNT, LUA_INSTRUCTION_LIMIT);
-
-    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-    push_cjson_to_lua(L, params);
-
-    int rc = 0;
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        LOG_ERROR("Lua tool error: %s", lua_tostring(L, -1));
-        if (result) *result = strdup(lua_tostring(L, -1));
-        lua_pop(L, 1);
-        rc = -1;
-    } else {
-        if (result) {
-            const char *r = lua_tostring(L, -1);
-            *result = r ? strdup(r) : NULL;
-        }
-        lua_pop(L, 1);
-    }
-
-    lua_sethook(L, NULL, 0, 0);
-    return rc;
-}
-
-/* ============================================================
- *  Event bus bridge
- * ============================================================ */
-
-typedef struct {
-    lua_State *L;
-    int ref;
-} LuaBusCtx;
-
-static void lua_bus_bridge(BusEvent *event, void *ctx) {
-    LuaBusCtx *bctx = (LuaBusCtx *)ctx;
-    lua_State *L = bctx->L;
-
-    lua_sethook(L, lua_hook_count, LUA_MASKCOUNT, LUA_INSTRUCTION_LIMIT);
-
-    lua_rawgeti(L, LUA_REGISTRYINDEX, bctx->ref);
-    lua_pushstring(L, event->topic);
-    push_cjson_to_lua(L, event->data);
-
-    if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-        LOG_ERROR("Lua bus handler error: %s", lua_tostring(L, -1));
-        lua_pop(L, 1);
-    }
-
-    lua_sethook(L, NULL, 0, 0);
-}
-
-static int lua_pi_bus_publish(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api) return luaL_error(L, "no api");
-
-    const char *topic = luaL_checkstring(L, 2);
-
-    cJSON *data = NULL;
-    if (lua_istable(L, 3)) {
-        data = lua_to_cjson(L, 3);
-    } else if (lua_isstring(L, 3)) {
-        data = cJSON_CreateString(lua_tostring(L, 3));
-    }
-
-    event_bus_publish(api->bus, topic, "lua", data);
-    if (data) cJSON_Delete(data);
-    return 0;
-}
-
-static int lua_pi_bus_subscribe(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api) return luaL_error(L, "no api");
-
-    const char *pattern = luaL_checkstring(L, 2);
-    luaL_checktype(L, 3, LUA_TFUNCTION);
-
-    lua_pushvalue(L, 3);
-    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-    LuaBusCtx *bctx = malloc(sizeof(LuaBusCtx));
-    if (!bctx) return luaL_error(L, "out of memory");
-    bctx->L = L;
-    bctx->ref = ref;
-
-    event_bus_subscribe(api->bus, pattern, lua_bus_bridge, bctx);
-    return 0;
-}
-
-/* ============================================================
- *  pi:log(level, message)
- * ============================================================ */
-
-static int lua_pi_log(lua_State *L) {
-    const char *level = luaL_checkstring(L, 2);
-    const char *msg = luaL_checkstring(L, 3);
-
-    if (strcmp(level, "error") == 0) {
-        LOG_ERROR("[lua] %s", msg);
-    } else if (strcmp(level, "warn") == 0) {
-        LOG_WARN("[lua] %s", msg);
-    } else if (strcmp(level, "debug") == 0) {
-        LOG_DEBUG("[lua] %s", msg);
-    } else {
-        LOG_INFO("[lua] %s", msg);
-    }
-    return 0;
-}
-
-/* ============================================================
- *  pi:get_setting / pi:set_setting
- * ============================================================ */
-
-static int lua_pi_get_setting(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api || !api->settings) {
-        lua_pushnil(L);
-        return 1;
-    }
-
-    const char *key = luaL_checkstring(L, 2);
-    cJSON *val = cJSON_GetObjectItem(api->settings, key);
-    if (!val) {
-        lua_pushnil(L);
-    } else {
-        push_cjson_to_lua(L, val);
-    }
-    return 1;
-}
-
-static int lua_pi_set_setting(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api || !api->settings) return 0;
-
-    const char *key = luaL_checkstring(L, 2);
-
-    cJSON *old = cJSON_DetachItemFromObject(api->settings, key);
-    if (old) cJSON_Delete(old);
-
-    cJSON *val = lua_to_cjson(L, 3);
-    cJSON_AddItemToObject(api->settings, key, val);
-    return 0;
-}
-
-/* ============================================================
- *  pi:state_get / pi:state_set
- * ============================================================ */
-
-static int lua_pi_state_get(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api || !api->state) {
-        lua_pushnil(L);
-        return 1;
-    }
-
-    const char *key = luaL_checkstring(L, 2);
-    cJSON *val = cJSON_GetObjectItem(api->state, key);
-    if (!val) {
-        lua_pushnil(L);
-    } else {
-        push_cjson_to_lua(L, val);
-    }
-    return 1;
-}
-
-static int lua_pi_state_set(lua_State *L) {
-    PiExtensionAPI *api = get_api_from_lua(L);
-    if (!api || !api->state) return 0;
-
-    const char *key = luaL_checkstring(L, 2);
-
-    cJSON *old = cJSON_DetachItemFromObject(api->state, key);
-    if (old) cJSON_Delete(old);
-
-    cJSON *val = lua_to_cjson(L, 3);
-    cJSON_AddItemToObject(api->state, key, val);
-    return 0;
-}
-
-/* ============================================================
- *  Register the pi object with all methods
- * ============================================================ */
-
-static const struct luaL_Reg pi_methods[] = {
-    {"on", lua_pi_on},
-    {"on_priority", lua_pi_on_priority},
-    {"register_command", lua_pi_register_command},
-    {"register_tool", lua_pi_register_tool},
-    {"bus_publish", lua_pi_bus_publish},
-    {"bus_subscribe", lua_pi_bus_subscribe},
-    {"log", lua_pi_log},
-    {"get_setting", lua_pi_get_setting},
-    {"set_setting", lua_pi_set_setting},
-    {"state_get", lua_pi_state_get},
-    {"state_set", lua_pi_state_set},
+static const struct luaL_Reg rig_methods[] = {
+    {"exec",       lua_rig_exec},
+    {"completion", lua_rig_completion},
+    {"print",      lua_rig_print},
+    {"input",      lua_rig_input},
+    {"hook",       lua_rig_hook},
+    {"unhook",     lua_rig_unhook},
+    {"get",        lua_rig_get},
+    {"set",        lua_rig_set},
     {NULL, NULL},
 };
 
-static void register_pi_object(lua_State *L, PiExtensionAPI *api,
-                                LuaExtState *state) {
-    /* Store API pointer in registry */
+static void register_rig(lua_State *L, PiExtensionAPI *api, LuaExtState *state) {
     lua_pushlightuserdata(L, api);
-    lua_setfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_API_KEY);
-
-    /* Store LuaExtState pointer in registry */
+    lua_setfield(L, LUA_REGISTRYINDEX, REG_API_KEY);
     lua_pushlightuserdata(L, state);
-    lua_setfield(L, LUA_REGISTRYINDEX, LUA_REGISTRY_STATE_KEY);
+    lua_setfield(L, LUA_REGISTRYINDEX, REG_STATE_KEY);
 
-    /* Create the pi table as a userdata with a metatable.
-     * Actually, simplest: use a plain table with methods.
-     * pi:method() means pi is the first arg (self). */
     lua_newtable(L);
-
-    for (const struct luaL_Reg *m = pi_methods; m->name; m++) {
+    for (const struct luaL_Reg *m = rig_methods; m->name; m++) {
         lua_pushcfunction(L, m->func);
         lua_setfield(L, -2, m->name);
     }
-
-    lua_setglobal(L, "pi");
+    lua_pushvalue(L, -1);
+    lua_setglobal(L, "pi");  /* backwards compat */
+    lua_setglobal(L, "rig");
 }
 
-static void register_json_functions(lua_State *L) {
+static void register_json(lua_State *L) {
     lua_newtable(L);
-
     lua_pushcfunction(L, lua_json_encode);
     lua_setfield(L, -2, "encode");
     lua_pushcfunction(L, lua_json_decode);
     lua_setfield(L, -2, "decode");
-
     lua_setglobal(L, "json");
 }
 
@@ -759,16 +765,15 @@ LuaExtState *lua_ext_create(PiExtensionAPI *api) {
     if (!state) return NULL;
 
     state->api = api;
+    state->sandboxed = true;
+    pthread_mutex_init(&state->lua_mutex, NULL);
     state->L = lua_newstate(lua_alloc_tracked, state);
-    if (!state->L) {
-        free(state);
-        return NULL;
-    }
+    if (!state->L) { pthread_mutex_destroy(&state->lua_mutex); free(state); return NULL; }
 
     luaL_openlibs(state->L);
-    sandbox_lua(state->L);
-    register_json_functions(state->L);
-    register_pi_object(state->L, api, state);
+    if (state->sandboxed) sandbox_lua(state->L);
+    register_json(state->L);
+    register_rig(state->L, api, state);
 
     return state;
 }
@@ -776,69 +781,84 @@ LuaExtState *lua_ext_create(PiExtensionAPI *api) {
 void lua_ext_free(LuaExtState *state) {
     if (!state) return;
     if (state->L) lua_close(state->L);
+    pthread_mutex_destroy(&state->lua_mutex);
     free(state);
+}
+
+void lua_ext_set_context(LuaExtState *state, RigLuaContext *ctx) {
+    if (!state || !state->L) return;
+    state->ctx = ctx;
+    lua_pushlightuserdata(state->L, ctx);
+    lua_setfield(state->L, LUA_REGISTRYINDEX, REG_CTX_KEY);
 }
 
 int lua_ext_load_file(LuaExtState *state, const char *path) {
     if (!state || !path || !state->L) return -1;
+    pthread_mutex_lock(&state->lua_mutex);
 
-    lua_sethook(state->L, lua_hook_count, LUA_MASKCOUNT,
-                LUA_INIT_INSTRUCTION_LIMIT);
+    lua_sethook(state->L, lua_hook_count, LUA_MASKCOUNT, LUA_INIT_INSTRUCTION_LIMIT);
 
     if (luaL_loadfile(state->L, path) != LUA_OK) {
-        LOG_ERROR("Lua load error: %s", lua_tostring(state->L, -1));
+        LOG_ERROR("[lua] load error: %s", lua_tostring(state->L, -1));
         lua_pop(state->L, 1);
+        lua_sethook(state->L, NULL, 0, 0);
+        pthread_mutex_unlock(&state->lua_mutex);
         return -1;
     }
 
     if (lua_pcall(state->L, 0, 0, 0) != LUA_OK) {
-        LOG_ERROR("Lua exec error: %s", lua_tostring(state->L, -1));
+        LOG_ERROR("[lua] exec error: %s", lua_tostring(state->L, -1));
         lua_pop(state->L, 1);
+        lua_sethook(state->L, NULL, 0, 0);
+        pthread_mutex_unlock(&state->lua_mutex);
         return -1;
     }
 
     lua_sethook(state->L, NULL, 0, 0);
     state->loaded = true;
+    pthread_mutex_unlock(&state->lua_mutex);
     return 0;
 }
 
 int lua_ext_call_init(LuaExtState *state) {
     if (!state || !state->L) return -1;
+    pthread_mutex_lock(&state->lua_mutex);
 
-    lua_sethook(state->L, lua_hook_count, LUA_MASKCOUNT,
-                LUA_INIT_INSTRUCTION_LIMIT);
+    lua_sethook(state->L, lua_hook_count, LUA_MASKCOUNT, LUA_INIT_INSTRUCTION_LIMIT);
 
     lua_getglobal(state->L, "init");
     if (!lua_isfunction(state->L, -1)) {
         lua_pop(state->L, 1);
         lua_sethook(state->L, NULL, 0, 0);
-        return 0; /* no init function is ok */
+        pthread_mutex_unlock(&state->lua_mutex);
+        return 0;
     }
 
-    lua_getglobal(state->L, "pi");
-
+    lua_getglobal(state->L, "rig");
     if (lua_pcall(state->L, 1, 0, 0) != LUA_OK) {
-        LOG_ERROR("Lua init error: %s", lua_tostring(state->L, -1));
+        LOG_ERROR("[lua] init error: %s", lua_tostring(state->L, -1));
         lua_pop(state->L, 1);
         lua_sethook(state->L, NULL, 0, 0);
+        pthread_mutex_unlock(&state->lua_mutex);
         return -1;
     }
 
     lua_sethook(state->L, NULL, 0, 0);
+    pthread_mutex_unlock(&state->lua_mutex);
     return 0;
 }
 
 int lua_ext_eval(LuaExtState *state, const char *code, char **result) {
     if (!state || !code || !state->L) return -1;
+    pthread_mutex_lock(&state->lua_mutex);
 
     lua_sethook(state->L, lua_hook_count, LUA_MASKCOUNT, LUA_INSTRUCTION_LIMIT);
 
     if (luaL_dostring(state->L, code) != LUA_OK) {
-        if (result) {
-            *result = strdup(lua_tostring(state->L, -1));
-        }
+        if (result) *result = strdup(lua_tostring(state->L, -1));
         lua_pop(state->L, 1);
         lua_sethook(state->L, NULL, 0, 0);
+        pthread_mutex_unlock(&state->lua_mutex);
         return -1;
     }
 
@@ -849,39 +869,73 @@ int lua_ext_eval(LuaExtState *state, const char *code, char **result) {
     }
 
     lua_sethook(state->L, NULL, 0, 0);
+    pthread_mutex_unlock(&state->lua_mutex);
     return 0;
 }
 
 int lua_ext_set_var(LuaExtState *state, const char *name, const char *value) {
     if (!state || !name || !state->L) return -1;
-
-    if (value) {
-        lua_pushstring(state->L, value);
-    } else {
-        lua_pushnil(state->L);
-    }
+    pthread_mutex_lock(&state->lua_mutex);
+    if (value) lua_pushstring(state->L, value);
+    else lua_pushnil(state->L);
     lua_setglobal(state->L, name);
+    pthread_mutex_unlock(&state->lua_mutex);
     return 0;
 }
 
 int lua_ext_set_var_json(LuaExtState *state, const char *name, cJSON *value) {
     if (!state || !name || !state->L) return -1;
-
-    push_cjson_to_lua(state->L, value);
+    pthread_mutex_lock(&state->lua_mutex);
+    push_cjson(state->L, value);
     lua_setglobal(state->L, name);
+    pthread_mutex_unlock(&state->lua_mutex);
     return 0;
 }
 
 char *lua_ext_get_var(LuaExtState *state, const char *name) {
     if (!state || !name || !state->L) return NULL;
-
+    pthread_mutex_lock(&state->lua_mutex);
     lua_getglobal(state->L, name);
     const char *r = lua_tostring(state->L, -1);
     char *result = r ? strdup(r) : NULL;
     lua_pop(state->L, 1);
+    pthread_mutex_unlock(&state->lua_mutex);
     return result;
 }
 
 bool lua_ext_is_loaded(LuaExtState *state) {
     return state && state->loaded;
+}
+
+int lua_ext_call_tool(LuaExtState *state, const char *name,
+                      cJSON *params, char **result) {
+    if (!state || !name || !state->L) return -1;
+    pthread_mutex_lock(&state->lua_mutex);
+
+    lua_getfield(state->L, LUA_REGISTRYINDEX, REG_TOOLS_KEY);
+    if (lua_isnil(state->L, -1)) { lua_pop(state->L, 1); pthread_mutex_unlock(&state->lua_mutex); return -1; }
+    lua_getfield(state->L, -1, name);
+    if (lua_isnil(state->L, -1)) { lua_pop(state->L, 2); pthread_mutex_unlock(&state->lua_mutex); return -1; }
+    int ref = (int)lua_tointeger(state->L, -1);
+    lua_pop(state->L, 2);
+
+    lua_rawgeti(state->L, LUA_REGISTRYINDEX, ref);
+    push_cjson(state->L, params);
+
+    int rc = 0;
+    if (lua_pcall(state->L, 1, 1, 0) != LUA_OK) {
+        LOG_ERROR("[lua] tool error: %s", lua_tostring(state->L, -1));
+        if (result) *result = strdup(lua_tostring(state->L, -1));
+        lua_pop(state->L, 1);
+        rc = -1;
+    } else {
+        if (result) {
+            const char *r = lua_tostring(state->L, -1);
+            *result = r ? strdup(r) : NULL;
+        }
+        lua_pop(state->L, 1);
+    }
+
+    pthread_mutex_unlock(&state->lua_mutex);
+    return rc;
 }

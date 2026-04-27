@@ -93,6 +93,26 @@ ParsedKey key_parse(const char *raw, int len) {
 
     if (raw[0] == '\x1b' && len >= 2) {
         if (raw[1] == '[') {
+            /* SGR mouse: \x1b[<button;x;yM or \x1b[<button;x;ym */
+            if (len >= 6 && raw[2] == '<') {
+                int button = 0, x = 0, y = 0;
+                const char *p = raw + 3;
+                while (*p && isdigit((unsigned char)*p)) { button = button * 10 + (*p - '0'); p++; }
+                if (*p == ';') p++;
+                while (*p && isdigit((unsigned char)*p)) { x = x * 10 + (*p - '0'); p++; }
+                if (*p == ';') p++;
+                while (*p && isdigit((unsigned char)*p)) { y = y * 10 + (*p - '0'); p++; }
+                (void)x; (void)y;
+                bool release = (*p == 'm');
+                (void)release;
+
+                if (button == 64) { set_id(&key, "scrollup"); return key; }
+                if (button == 65) { set_id(&key, "scrolldown"); return key; }
+
+                set_id(&key, "mouse");
+                return key;
+            }
+
             if (len == 3) {
                 switch (raw[2]) {
                     case 'A': set_id(&key, "up"); return key;
