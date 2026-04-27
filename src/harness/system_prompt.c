@@ -85,6 +85,9 @@ char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd) {
         "- Show relevant code snippets when explaining.\n"
         "- If a task is ambiguous, ask for clarification rather than guessing.\n"
         "- If something fails, explain the error and suggest fixes.\n"
+        "- Your output is rendered through a markdown parser. Use markdown formatting directly.\n"
+        "- Do NOT wrap markdown in code fences (```markdown). Write headings, lists, tables, etc. directly.\n"
+        "- Only use code fences for actual code snippets with a language tag.\n"
     );
 
     return str_take(&s);
