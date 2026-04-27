@@ -44,11 +44,15 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
         run: |
+          NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
           if [[ "${{ matrix.os }}" == macos* ]]; then
-            export CFLAGS="-I$(brew --prefix openssl@3)/include"
-            export LDFLAGS="-L$(brew --prefix openssl@3)/lib"
+            OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+            make -j"$NPROC" CC="$CC" \
+              CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O2 -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE -I src -I deps -I deps/lua5.4 -I deps/libyaml -I deps/md4c -DLUA_USE_POSIX -DHAVE_CONFIG_H -I${OPENSSL_PREFIX}/include" \
+              LDFLAGS="-lcurl -lssl -lcrypto -lm -ldl -lpthread -lz -L${OPENSSL_PREFIX}/lib"
+          else
+            make -j"$NPROC" CC="$CC"
           fi
-          make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) CC=$CC
           strip rig
 
       - name: Package
