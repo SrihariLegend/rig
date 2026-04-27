@@ -155,8 +155,11 @@ static ValidationResult validate_value(const cJSON *schema, const cJSON *value, 
 
 ValidationResult validate_tool_arguments(const Tool *tool, cJSON *arguments) {
     if (!tool || !tool->parameters) return ok();
-    if (!arguments) arguments = cJSON_CreateObject();
-    return validate_value(tool->parameters, arguments, "$");
+    bool owns_args = false;
+    if (!arguments) { arguments = cJSON_CreateObject(); owns_args = true; }
+    ValidationResult vr = validate_value(tool->parameters, arguments, "$");
+    if (owns_args) cJSON_Delete(arguments);
+    return vr;
 }
 
 cJSON *coerce_tool_arguments(const cJSON *schema, cJSON *arguments) {

@@ -285,8 +285,8 @@ int str_replace_all(Str *s, const char *old, const char *new_str) {
     if (count == 0) return 0;
 
     // Calculate size difference
-    int size_diff = (int)(new_len - old_len);
-    size_t new_total_len = s->len + (size_t)(size_diff * count);
+    long long size_diff = (long long)new_len - (long long)old_len;
+    size_t new_total_len = (size_t)((long long)s->len + size_diff * count);
 
     if (size_diff > 0) {
         // Growing: need more space

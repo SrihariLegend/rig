@@ -32,9 +32,20 @@ static int grep_execute(const char *call_id, cJSON *params, void *signal,
     int ctx_lines = json_get_int(params, "context", 0);
     if (ctx_lines > 0) str_appendf(&cmd, " -C %d", ctx_lines);
 
-    str_appendf(&cmd, " -- '%s'", pattern);
-    if (path) str_appendf(&cmd, " '%s'", path);
-    else str_append(&cmd, " .");
+    /* Escape single quotes: ' → '\'' */
+    Str esc_pattern = str_from(pattern);
+    str_replace_all(&esc_pattern, "'", "'\\''");
+    str_appendf(&cmd, " -- '%s'", esc_pattern.data);
+    str_free(&esc_pattern);
+
+    if (path) {
+        Str esc_path = str_from(path);
+        str_replace_all(&esc_path, "'", "'\\''");
+        str_appendf(&cmd, " '%s'", esc_path.data);
+        str_free(&esc_path);
+    } else {
+        str_append(&cmd, " .");
+    }
 
     Str output = str_new(4096);
     ProcessOptions opts = {

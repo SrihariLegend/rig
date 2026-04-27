@@ -469,10 +469,10 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 .thinking_budgets = config->thinking_budgets,
             };
 
+            char *allocated_key = NULL;
             if (config->get_api_key && config->model) {
-                char *key = NULL;
-                config->get_api_key(config->model->provider, &key);
-                if (key) opts.base.api_key = key;
+                config->get_api_key(config->model->provider, &allocated_key);
+                if (allocated_key) opts.base.api_key = allocated_key;
             }
 
             state->is_streaming = true;
@@ -484,6 +484,7 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
 
             state->is_streaming = false;
             free(flat_msgs);
+            free(allocated_key);
 
             if (converted != llm_msgs) {
                 free(converted);

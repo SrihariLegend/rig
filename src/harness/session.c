@@ -10,6 +10,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdint.h>
 
 static const char *entry_type_strings[] = {
     "message",
@@ -40,28 +41,31 @@ static const char *entry_type_to_string(SessionEntryType type) {
 }
 
 char *session_generate_id(void) {
-    static bool seeded = false;
-    if (!seeded) {
-        int fd = open("/dev/urandom", O_RDONLY);
-        unsigned int seed;
-        if (fd >= 0 && read(fd, &seed, sizeof(seed)) == sizeof(seed)) {
-            srand(seed);
-            close(fd);
-        } else {
-            srand((unsigned int)time(NULL));
-        }
-        seeded = true;
-    }
-
     char *id = malloc(17);
     if (!id) return NULL;
 
+    unsigned char buf[8];
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd >= 0) {
+        ssize_t n = read(fd, buf, sizeof(buf));
+        close(fd);
+        if (n == sizeof(buf)) {
+            for (int i = 0; i < 16; i++) {
+                int nibble = (buf[i / 2] >> ((i % 2) ? 0 : 4)) & 0x0F;
+                id[i] = "0123456789abcdef"[nibble];
+            }
+            id[16] = '\0';
+            return id;
+        }
+    }
+
+    /* Fallback: use time + address entropy */
+    unsigned long t = (unsigned long)time(NULL) ^ (unsigned long)(uintptr_t)id;
     for (int i = 0; i < 16; i++) {
-        int r = rand() % 16;
-        id[i] = "0123456789abcdef"[r];
+        t = t * 6364136223846793005UL + 1442695040888963407UL;
+        id[i] = "0123456789abcdef"[(t >> 32) & 0x0F];
     }
     id[16] = '\0';
-
     return id;
 }
 

@@ -212,6 +212,7 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
                 cJSON_AddStringToObject(msg_data, "text", full_text.data);
                 session_append(state->session, ENTRY_MESSAGE, msg_data);
                 session_flush(state->session);
+                cJSON_Delete(msg_data);
                 str_free(&full_text);
             }
             pthread_mutex_lock(&state->mutex);
@@ -235,6 +236,12 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
         if (event->tool_name) {
             pthread_mutex_lock(&state->mutex);
             char *args_str = event->args ? cJSON_PrintUnformatted(event->args) : NULL;
+            if (args_str && strlen(args_str) > 200) {
+                args_str[197] = '.';
+                args_str[198] = '.';
+                args_str[199] = '.';
+                args_str[200] = '\0';
+            }
             linestore_add_tool_start(state->store, event->tool_name, args_str);
             free(args_str);
             lantern_renderer_set_breathing(state->renderer, true, event->tool_name);
@@ -292,6 +299,7 @@ static void handle_submit(InteractiveState *state) {
         cJSON_AddStringToObject(msg_data, "text", prompt_text);
         session_append(state->session, ENTRY_MESSAGE, msg_data);
         session_flush(state->session);
+        cJSON_Delete(msg_data);
     }
 
     state->phase = ISTATE_STREAMING;
@@ -743,6 +751,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     ai_registry_cleanup();
     http_global_cleanup();
+    pi_log_close();
 
     return 0;
 }
