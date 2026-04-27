@@ -140,7 +140,7 @@ TEST(tool_bash_execute) {
 }
 
 TEST(tool_read_execute) {
-    const char *path = "/tmp/pi_test_read_tool.txt";
+    const char *path = "/tmp/rig_test_read_tool.txt";
     fs_write_file(path, "hello from read", 15);
 
     Tool t = tool_read_create();
@@ -163,7 +163,7 @@ TEST(tool_read_execute) {
 
 TEST(tool_write_execute) {
     Tool t = tool_write_create();
-    const char *path = "/tmp/pi_test_write_tool.txt";
+    const char *path = "/tmp/rig_test_write_tool.txt";
     cJSON *params = cJSON_CreateObject();
     cJSON_AddStringToObject(params, "file_path", path);
     cJSON_AddStringToObject(params, "content", "written");
@@ -204,9 +204,9 @@ TEST(tool_ls_execute) {
 }
 
 TEST(tool_grep_execute) {
-    const char *path = "/tmp/pi_test_grep_dir";
+    const char *path = "/tmp/rig_test_grep_dir";
     fs_mkdir_p(path);
-    fs_write_file("/tmp/pi_test_grep_dir/file.txt", "findme here\nanother line\n", 25);
+    fs_write_file("/tmp/rig_test_grep_dir/file.txt", "findme here\nanother line\n", 25);
 
     Tool t = tool_grep_create();
     cJSON *params = cJSON_CreateObject();
@@ -223,7 +223,7 @@ TEST(tool_grep_execute) {
     cJSON_Delete(params);
     cJSON_Delete(details);
     cJSON_Delete(t.parameters);
-    unlink("/tmp/pi_test_grep_dir/file.txt");
+    unlink("/tmp/rig_test_grep_dir/file.txt");
     rmdir(path);
 }
 
@@ -446,11 +446,11 @@ TEST(adv_read_null_byte_path) {
 
 TEST(adv_read_symlink_following) {
     /* Create a symlink that points somewhere and try to read through it */
-    unlink("/tmp/pi_test_symlink");
-    symlink("/etc/hostname", "/tmp/pi_test_symlink");
+    unlink("/tmp/rig_test_symlink");
+    symlink("/etc/hostname", "/tmp/rig_test_symlink");
     Tool t = tool_read_create();
     cJSON *params = cJSON_CreateObject();
-    cJSON_AddStringToObject(params, "file_path", "/tmp/pi_test_symlink");
+    cJSON_AddStringToObject(params, "file_path", "/tmp/rig_test_symlink");
     ContentBlock *content = NULL;
     int count = 0;
     cJSON *details = NULL;
@@ -464,7 +464,7 @@ TEST(adv_read_symlink_following) {
     cJSON_Delete(params);
     cJSON_Delete(details);
     cJSON_Delete(t.parameters);
-    unlink("/tmp/pi_test_symlink");
+    unlink("/tmp/rig_test_symlink");
 }
 
 TEST(adv_read_extremely_long_path) {
@@ -495,7 +495,7 @@ TEST(adv_read_extremely_long_path) {
 
 TEST(adv_read_unicode_path) {
     /* Create a file with unicode chars in path */
-    const char *path = "/tmp/pi_test_\xc3\xa9\xc3\xa0\xc3\xbc.txt";
+    const char *path = "/tmp/rig_test_\xc3\xa9\xc3\xa0\xc3\xbc.txt";
     fs_write_file(path, "unicode test", 12);
     Tool t = tool_read_create();
     cJSON *params = cJSON_CreateObject();
@@ -517,7 +517,7 @@ TEST(adv_read_unicode_path) {
 
 TEST(adv_read_binary_file_rejected) {
     /* Write a file with null bytes (binary) */
-    const char *path = "/tmp/pi_test_binary.bin";
+    const char *path = "/tmp/rig_test_binary.bin";
     char buf[100];
     memset(buf, 0, 100);
     buf[0] = 'M'; buf[1] = 'Z'; /* PE header-like */
@@ -566,7 +566,7 @@ TEST(adv_write_no_path) {
 TEST(adv_write_no_content) {
     Tool t = tool_write_create();
     cJSON *params = cJSON_CreateObject();
-    cJSON_AddStringToObject(params, "file_path", "/tmp/pi_adv_test.txt");
+    cJSON_AddStringToObject(params, "file_path", "/tmp/rig_adv_test.txt");
     /* Missing content */
     ContentBlock *content = NULL;
     int count = 0;

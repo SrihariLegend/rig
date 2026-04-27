@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_CONFIG_H
-#define PI_HARNESS_CONFIG_H
+#ifndef RIG_HARNESS_CONFIG_H
+#define RIG_HARNESS_CONFIG_H
 
 const char *config_agent_dir(void);
 const char *config_settings_global_path(void);

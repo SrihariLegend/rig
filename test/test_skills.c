@@ -6,15 +6,15 @@
 #include <string.h>
 #include <unistd.h>
 
-static const char *SKILL_DIR = "/tmp/pi_test_skills";
+static const char *SKILL_DIR = "/tmp/rig_test_skills";
 
 static void setup(void) {
-    system("rm -rf /tmp/pi_test_skills");
+    system("rm -rf /tmp/rig_test_skills");
     fs_mkdir_p(SKILL_DIR);
 }
 
 static void teardown(void) {
-    system("rm -rf /tmp/pi_test_skills");
+    system("rm -rf /tmp/rig_test_skills");
 }
 
 TEST(skills_discover_empty_dir) {
@@ -30,7 +30,7 @@ TEST(skills_discover_empty_dir) {
 TEST(skills_discover_md_file) {
     setup();
     const char *content = "---\nname: test-skill\ndescription: A test\n---\nSkill body here\n";
-    fs_write_file("/tmp/pi_test_skills/test-skill.md", content, strlen(content));
+    fs_write_file("/tmp/rig_test_skills/test-skill.md", content, strlen(content));
     int count = 0;
     const char *paths[] = { SKILL_DIR };
     Skill *skills = skills_discover(paths, 1, &count);
@@ -43,9 +43,9 @@ TEST(skills_discover_md_file) {
 
 TEST(skills_discover_skill_md_subdir) {
     setup();
-    fs_mkdir_p("/tmp/pi_test_skills/my-skill");
+    fs_mkdir_p("/tmp/rig_test_skills/my-skill");
     const char *content = "---\nname: my-skill\ndescription: Subdir skill\n---\nContent\n";
-    fs_write_file("/tmp/pi_test_skills/my-skill/SKILL.md", content, strlen(content));
+    fs_write_file("/tmp/rig_test_skills/my-skill/SKILL.md", content, strlen(content));
     int count = 0;
     const char *paths[] = { SKILL_DIR };
     Skill *skills = skills_discover(paths, 1, &count);
@@ -58,7 +58,7 @@ TEST(skills_discover_skill_md_subdir) {
 TEST(skills_discover_disable_invocation) {
     setup();
     const char *content = "---\nname: no-invoke\ndescription: hidden\ndisable-model-invocation: true\n---\nbody\n";
-    fs_write_file("/tmp/pi_test_skills/no-invoke.md", content, strlen(content));
+    fs_write_file("/tmp/rig_test_skills/no-invoke.md", content, strlen(content));
     int count = 0;
     const char *paths[] = { SKILL_DIR };
     Skill *skills = skills_discover(paths, 1, &count);
@@ -98,7 +98,7 @@ TEST(skills_free_null) {
 
 TEST(skills_discover_nonexistent_dir) {
     int count = 0;
-    const char *paths[] = { "/tmp/pi_nonexistent_skills" };
+    const char *paths[] = { "/tmp/rig_nonexistent_skills" };
     Skill *skills = skills_discover(paths, 1, &count);
     ASSERT_EQ(count, 0);
     skills_free(skills, count);

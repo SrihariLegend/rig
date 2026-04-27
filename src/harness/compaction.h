@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_COMPACTION_H
-#define PI_HARNESS_COMPACTION_H
+#ifndef RIG_HARNESS_COMPACTION_H
+#define RIG_HARNESS_COMPACTION_H
 
 #include "ai/types.h"
 #include <stdbool.h>

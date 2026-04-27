@@ -1,5 +1,5 @@
-#ifndef PI_HASHMAP_H
-#define PI_HASHMAP_H
+#ifndef RIG_HASHMAP_H
+#define RIG_HASHMAP_H
 
 #include <stddef.h>
 #include <stdbool.h>

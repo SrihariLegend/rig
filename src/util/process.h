@@ -1,5 +1,5 @@
-#ifndef PI_PROCESS_H
-#define PI_PROCESS_H
+#ifndef RIG_PROCESS_H
+#define RIG_PROCESS_H
 
 #include <stdbool.h>
 #include <stddef.h>

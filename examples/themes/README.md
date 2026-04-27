@@ -1,6 +1,6 @@
 # Theme System
 
-The pi-c theme system provides customizable color schemes for the TUI using JSON configuration files.
+The rig theme system provides customizable color schemes for the TUI using JSON configuration files.
 
 ## Theme Format
 
@@ -148,7 +148,7 @@ printf("%sAccented text\033[0m\n", color_code);
 free(color_code);
 
 // Discover themes in directories
-const char *paths[] = {"~/.pi/themes", "/usr/share/pi/themes"};
+const char *paths[] = {"~/.rig/themes", "/usr/share/rig/themes"};
 int count = 0;
 char **themes = themes_discover(paths, 2, &count);
 for (int i = 0; i < count; i++) {

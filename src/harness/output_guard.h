@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_OUTPUT_GUARD_H
-#define PI_HARNESS_OUTPUT_GUARD_H
+#ifndef RIG_HARNESS_OUTPUT_GUARD_H
+#define RIG_HARNESS_OUTPUT_GUARD_H
 
 #include <stdbool.h>
 #include <stddef.h>

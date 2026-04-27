@@ -1,5 +1,5 @@
-#ifndef PI_KEYS_H
-#define PI_KEYS_H
+#ifndef RIG_KEYS_H
+#define RIG_KEYS_H
 
 #include <stdbool.h>
 

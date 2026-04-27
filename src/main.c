@@ -16,7 +16,7 @@
 #include "harness/tools/tools.h"
 #include "harness/modes/print.h"
 #include "harness/modes/interactive.h"
-#include "pi.h"
+#include "rig.h"
 #include "util/http.h"
 #include "util/fs.h"
 #include "util/log.h"
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
         case 's': session_id = optarg; break;
         case 'j': json_mode = true; print_mode = true; break;
         case 'T': no_tools = true; break;
-        case 'v': pi_log_set_level(LOG_DEBUG); break;
+        case 'v': rig_log_set_level(LOG_DEBUG); break;
         case 'h': usage(argv[0]); return 0;
         default: usage(argv[0]); return 1;
         }
@@ -164,13 +164,13 @@ int main(int argc, char **argv) {
     }
 
     if (!print_mode) {
-        PiInstance *pi = pi_create();
-        if (!pi) {
+        RigInstance *rig = rig_create();
+        if (!rig) {
             fprintf(stderr, "Error: Failed to create Rig instance\n");
             return 1;
         }
-        int rc = interactive_mode_start(pi, session_id, model_pattern, provider);
-        pi_free(pi);
+        int rc = interactive_mode_start(rig, session_id, model_pattern, provider);
+        rig_free(rig);
         return rc;
     }
 
@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
         fs_mkdir_p(agent_dir);
         char log_path[512];
         snprintf(log_path, sizeof(log_path), "%s/rig.log", agent_dir);
-        pi_log_open(log_path);
+        rig_log_open(log_path);
     }
 
     http_global_init();
@@ -223,8 +223,8 @@ int main(int argc, char **argv) {
     }
     if (!model) {
         fprintf(stderr, "Error: No API key found. Set one of:\n");
-        fprintf(stderr, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,\n");
-        fprintf(stderr, "  MISTRAL_API_KEY, AWS_ACCESS_KEY_ID\n");
+        fprintf(stderr, "  ANTHROPIC_ARIG_KEY, OPENAI_ARIG_KEY, GOOGLE_ARIG_KEY,\n");
+        fprintf(stderr, "  MISTRAL_ARIG_KEY, AWS_ACCESS_KEY_ID\n");
         return 1;
     }
 

@@ -1,5 +1,5 @@
-#ifndef PI_JSON_H
-#define PI_JSON_H
+#ifndef RIG_JSON_H
+#define RIG_JSON_H
 
 #include "cjson/cJSON.h"
 #include <stdbool.h>

@@ -1,5 +1,5 @@
-#ifndef PI_MD_RENDER_H
-#define PI_MD_RENDER_H
+#ifndef RIG_MD_RENDER_H
+#define RIG_MD_RENDER_H
 
 #include "linestore.h"
 

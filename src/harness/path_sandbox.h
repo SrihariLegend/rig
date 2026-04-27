@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_PATH_SANDBOX_H
-#define PI_HARNESS_PATH_SANDBOX_H
+#ifndef RIG_HARNESS_PATH_SANDBOX_H
+#define RIG_HARNESS_PATH_SANDBOX_H
 
 #include <stdbool.h>
 

@@ -1,5 +1,5 @@
-#ifndef PI_HOOKS_H
-#define PI_HOOKS_H
+#ifndef RIG_HOOKS_H
+#define RIG_HOOKS_H
 
 #include "cjson/cJSON.h"
 #include <stdbool.h>

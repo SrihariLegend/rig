@@ -1,5 +1,5 @@
-#ifndef PI_AI_MODELS_H
-#define PI_AI_MODELS_H
+#ifndef RIG_AI_MODELS_H
+#define RIG_AI_MODELS_H
 
 #include "types.h"
 

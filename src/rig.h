@@ -1,5 +1,5 @@
-#ifndef PI_H
-#define PI_H
+#ifndef RIG_H
+#define RIG_H
 
 #include "ai/types.h"
 #include "ai/registry.h"
@@ -33,23 +33,23 @@
 #define RIG_VERSION_MINOR 1
 #define RIG_VERSION_PATCH 0
 
-typedef struct PiInstance {
-    PiExtensionAPI *api;
+typedef struct RigInstance {
+    RigExtensionAPI *api;
     AgentState *agent;
     Session *session;
     RPCServer *rpc;
     bool initialized;
-} PiInstance;
+} RigInstance;
 
-PiInstance *pi_create(void);
-void pi_free(PiInstance *pi);
+RigInstance *rig_create(void);
+void rig_free(RigInstance *r);
 
-int pi_init(PiInstance *pi);
+int rig_init(RigInstance *r);
 
-int pi_run_print(PiInstance *pi, const char *prompt);
-int pi_run_rpc(PiInstance *pi);
-int pi_run_interactive(PiInstance *pi);
+int rig_run_print(RigInstance *r, const char *prompt);
+int rig_run_rpc(RigInstance *r);
+int rig_run_interactive(RigInstance *r);
 
-const char *pi_version(void);
+const char *rig_version(void);
 
 #endif

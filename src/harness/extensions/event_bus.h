@@ -1,5 +1,5 @@
-#ifndef PI_EVENT_BUS_H
-#define PI_EVENT_BUS_H
+#ifndef RIG_EVENT_BUS_H
+#define RIG_EVENT_BUS_H
 
 #include "cjson/cJSON.h"
 #include <stdint.h>

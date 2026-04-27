@@ -7,7 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static const char *TEST_DIR = "/tmp/pi_test_sessions";
+static const char *TEST_DIR = "/tmp/rig_test_sessions";
 
 static void cleanup_test_dir(void) {
     /* crude cleanup */
@@ -112,7 +112,7 @@ TEST(session_load_null) {
 }
 
 TEST(session_load_missing) {
-    ASSERT_NULL(session_load("/tmp/pi_nonexistent_session.jsonl"));
+    ASSERT_NULL(session_load("/tmp/rig_nonexistent_session.jsonl"));
 }
 
 TEST(session_get_entry) {
@@ -360,7 +360,7 @@ TEST(session_rapid_append_flush) {
 TEST(adv_session_load_truncated_jsonl) {
     cleanup_test_dir();
     fs_mkdir_p(TEST_DIR);
-    const char *path = "/tmp/pi_test_sessions/truncated.jsonl";
+    const char *path = "/tmp/rig_test_sessions/truncated.jsonl";
     /* Write a valid first line then a truncated second line */
     const char *data = "{\"id\":\"abc\",\"type\":\"message\",\"data\":{},\"timestamp\":1000}\n{\"id\":\"def\",\"typ";
     fs_write_file(path, data, strlen(data));
@@ -376,7 +376,7 @@ TEST(adv_session_load_truncated_jsonl) {
 TEST(adv_session_load_invalid_json_line) {
     cleanup_test_dir();
     fs_mkdir_p(TEST_DIR);
-    const char *path = "/tmp/pi_test_sessions/invalid_line.jsonl";
+    const char *path = "/tmp/rig_test_sessions/invalid_line.jsonl";
     const char *data = "{\"id\":\"abc\",\"type\":\"message\",\"data\":{},\"timestamp\":1000}\nnot valid json\n{\"id\":\"ghi\",\"type\":\"message\",\"data\":{},\"timestamp\":1002}\n";
     fs_write_file(path, data, strlen(data));
     Session *s = session_load(path);
@@ -391,7 +391,7 @@ TEST(adv_session_load_invalid_json_line) {
 TEST(adv_session_load_empty_lines) {
     cleanup_test_dir();
     fs_mkdir_p(TEST_DIR);
-    const char *path = "/tmp/pi_test_sessions/empty_lines.jsonl";
+    const char *path = "/tmp/rig_test_sessions/empty_lines.jsonl";
     const char *data = "\n\n{\"id\":\"abc\",\"type\":\"message\",\"data\":{},\"timestamp\":1000}\n\n\n";
     fs_write_file(path, data, strlen(data));
     Session *s = session_load(path);
@@ -406,7 +406,7 @@ TEST(adv_session_load_empty_lines) {
 TEST(adv_session_load_binary_garbage) {
     cleanup_test_dir();
     fs_mkdir_p(TEST_DIR);
-    const char *path = "/tmp/pi_test_sessions/garbage.jsonl";
+    const char *path = "/tmp/rig_test_sessions/garbage.jsonl";
     char garbage[512];
     for (int i = 0; i < 512; i++) garbage[i] = (char)(i % 256);
     fs_write_file(path, garbage, 512);

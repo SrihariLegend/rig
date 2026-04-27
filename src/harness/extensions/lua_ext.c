@@ -29,7 +29,7 @@
 
 struct LuaExtState {
     lua_State *L;
-    PiExtensionAPI *api;
+    RigExtensionAPI *api;
     RigLuaContext *ctx;
     size_t mem_used;
     bool loaded;
@@ -161,9 +161,9 @@ static cJSON *lua_to_cjson(lua_State *L, int idx) {
  *  Registry helpers
  * ============================================================ */
 
-static PiExtensionAPI *get_api(lua_State *L) {
+static RigExtensionAPI *get_api(lua_State *L) {
     lua_getfield(L, LUA_REGISTRYINDEX, REG_API_KEY);
-    PiExtensionAPI *api = (PiExtensionAPI *)lua_touserdata(L, -1);
+    RigExtensionAPI *api = (RigExtensionAPI *)lua_touserdata(L, -1);
     lua_pop(L, 1);
     return api;
 }
@@ -413,6 +413,18 @@ static int lua_rig_input(lua_State *L) {
 
 typedef struct { lua_State *L; int ref; pthread_mutex_t *lua_mutex; } LuaHookCtx;
 
+static void show_lua_error(lua_State *L, const char *prefix, const char *err) {
+    RigLuaContext *ctx = get_ctx(L);
+    if (ctx && ctx->store) {
+        LineStore *store = (LineStore *)ctx->store;
+        char buf[512];
+        snprintf(buf, sizeof(buf), "[ext] %s: %s", prefix, err ? err : "unknown error");
+        if (ctx->mutex) pthread_mutex_lock(ctx->mutex);
+        linestore_add_error(store, buf);
+        if (ctx->mutex) pthread_mutex_unlock(ctx->mutex);
+    }
+}
+
 static bool lua_hook_bridge(const char *event, cJSON *data,
                             cJSON **result, void *ud) {
     LuaHookCtx *hctx = (LuaHookCtx *)ud;
@@ -424,7 +436,9 @@ static bool lua_hook_bridge(const char *event, cJSON *data,
 
     bool ok = true;
     if (lua_pcall(hctx->L, 2, 1, 0) != LUA_OK) {
-        LOG_ERROR("[lua] hook error: %s", lua_tostring(hctx->L, -1));
+        const char *err = lua_tostring(hctx->L, -1);
+        LOG_ERROR("[lua] hook error: %s", err);
+        show_lua_error(hctx->L, "hook error", err);
         lua_pop(hctx->L, 1);
     } else {
         if (lua_isboolean(hctx->L, -1)) ok = lua_toboolean(hctx->L, -1);
@@ -437,7 +451,7 @@ static bool lua_hook_bridge(const char *event, cJSON *data,
 }
 
 static int lua_rig_hook(lua_State *L) {
-    PiExtensionAPI *api = get_api(L);
+    RigExtensionAPI *api = get_api(L);
     LuaExtState *st = get_state(L);
     if (!api) return luaL_error(L, "no api");
 
@@ -468,7 +482,7 @@ static int lua_rig_hook(lua_State *L) {
  * ============================================================ */
 
 static int lua_rig_unhook(lua_State *L) {
-    PiExtensionAPI *api = get_api(L);
+    RigExtensionAPI *api = get_api(L);
     if (!api) return luaL_error(L, "no api");
     const char *name = luaL_checkstring(L, 1);
     lua_pushboolean(L, hook_chain_remove(api->hooks, name) == 0);
@@ -483,7 +497,7 @@ static int lua_rig_get(lua_State *L) {
     const char *ns = luaL_checkstring(L, 1);
     const char *key = luaL_optstring(L, 2, NULL);
     RigLuaContext *ctx = get_ctx(L);
-    PiExtensionAPI *api = get_api(L);
+    RigExtensionAPI *api = get_api(L);
 
     if (strcmp(ns, "config") == 0) {
         if (!key) {
@@ -590,7 +604,9 @@ static int lua_cmd_bridge(const char **args, int argc, void *ud) {
     }
     int rc = 0;
     if (lua_pcall(c->L, 1, 0, 0) != LUA_OK) {
-        LOG_ERROR("[lua] command error: %s", lua_tostring(c->L, -1));
+        const char *err = lua_tostring(c->L, -1);
+        LOG_ERROR("[lua] command error: %s", err);
+        show_lua_error(c->L, "command error", err);
         lua_pop(c->L, 1);
         rc = -1;
     }
@@ -602,7 +618,7 @@ static int lua_cmd_bridge(const char **args, int argc, void *ud) {
 static int lua_rig_set(lua_State *L) {
     const char *ns = luaL_checkstring(L, 1);
     const char *key = luaL_checkstring(L, 2);
-    PiExtensionAPI *api = get_api(L);
+    RigExtensionAPI *api = get_api(L);
     RigLuaContext *ctx = get_ctx(L);
     LuaExtState *st = get_state(L);
 
@@ -787,7 +803,7 @@ static const struct luaL_Reg rig_methods[] = {
     {NULL, NULL},
 };
 
-static void register_rig(lua_State *L, PiExtensionAPI *api, LuaExtState *state) {
+static void register_rig(lua_State *L, RigExtensionAPI *api, LuaExtState *state) {
     lua_pushlightuserdata(L, api);
     lua_setfield(L, LUA_REGISTRYINDEX, REG_API_KEY);
     lua_pushlightuserdata(L, state);
@@ -799,7 +815,7 @@ static void register_rig(lua_State *L, PiExtensionAPI *api, LuaExtState *state) 
         lua_setfield(L, -2, m->name);
     }
     lua_pushvalue(L, -1);
-    lua_setglobal(L, "pi");  /* backwards compat */
+    /* "pi" global removed — use "rig" */
     lua_setglobal(L, "rig");
 }
 
@@ -816,7 +832,7 @@ static void register_json(lua_State *L) {
  *  Public API
  * ============================================================ */
 
-LuaExtState *lua_ext_create(PiExtensionAPI *api) {
+LuaExtState *lua_ext_create(RigExtensionAPI *api) {
     LuaExtState *state = calloc(1, sizeof(LuaExtState));
     if (!state) return NULL;
 

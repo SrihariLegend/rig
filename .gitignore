@@ -27,5 +27,8 @@ pi_asan
 hello
 hello.c
 /pi
+/rig
 test/test_*
 !test/test_*.c
+!test/test.h
+.rig/snapshots/

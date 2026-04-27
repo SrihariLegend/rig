@@ -1,5 +1,5 @@
-#ifndef PI_AI_TYPES_H
-#define PI_AI_TYPES_H
+#ifndef RIG_AI_TYPES_H
+#define RIG_AI_TYPES_H
 
 #include <stdbool.h>
 #include <stdint.h>

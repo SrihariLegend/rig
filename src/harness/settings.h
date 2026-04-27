@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_SETTINGS_H
-#define PI_HARNESS_SETTINGS_H
+#ifndef RIG_HARNESS_SETTINGS_H
+#define RIG_HARNESS_SETTINGS_H
 
 #include "cjson/cJSON.h"
 #include <stdbool.h>
@@ -7,7 +7,7 @@
 /* Settings layers, ordered by precedence (lowest to highest) */
 typedef enum {
     SETTINGS_GLOBAL,    /* ~/.rig/agent/settings.json */
-    SETTINGS_PROJECT,   /* .pi/settings.json         */
+    SETTINGS_PROJECT,   /* .rig/settings.json         */
     SETTINGS_CLI,       /* command-line overrides     */
 } SettingsLayer;
 

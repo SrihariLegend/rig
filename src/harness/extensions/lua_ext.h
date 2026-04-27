@@ -1,5 +1,5 @@
-#ifndef PI_LUA_EXT_H
-#define PI_LUA_EXT_H
+#ifndef RIG_LUA_EXT_H
+#define RIG_LUA_EXT_H
 
 #include "extension.h"
 #include "agent/agent.h"
@@ -19,7 +19,7 @@ typedef struct {
     volatile bool *running;
 } RigLuaContext;
 
-LuaExtState *lua_ext_create(PiExtensionAPI *api);
+LuaExtState *lua_ext_create(RigExtensionAPI *api);
 void lua_ext_free(LuaExtState *state);
 
 void lua_ext_set_context(LuaExtState *state, RigLuaContext *ctx);

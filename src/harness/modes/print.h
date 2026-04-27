@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_PRINT_MODE_H
-#define PI_HARNESS_PRINT_MODE_H
+#ifndef RIG_HARNESS_PRINT_MODE_H
+#define RIG_HARNESS_PRINT_MODE_H
 
 #include "agent/agent.h"
 

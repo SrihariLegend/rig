@@ -1,5 +1,5 @@
-#ifndef PI_AWS_EVENTSTREAM_H
-#define PI_AWS_EVENTSTREAM_H
+#ifndef RIG_AWS_EVENTSTREAM_H
+#define RIG_AWS_EVENTSTREAM_H
 
 #include <stddef.h>
 

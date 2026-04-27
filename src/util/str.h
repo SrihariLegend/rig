@@ -1,5 +1,5 @@
-#ifndef PI_STR_H
-#define PI_STR_H
+#ifndef RIG_STR_H
+#define RIG_STR_H
 
 #include <stddef.h>
 #include <stdbool.h>

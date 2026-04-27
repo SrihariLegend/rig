@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_AUTH_H
-#define PI_HARNESS_AUTH_H
+#ifndef RIG_HARNESS_AUTH_H
+#define RIG_HARNESS_AUTH_H
 
 #include <stdbool.h>
 

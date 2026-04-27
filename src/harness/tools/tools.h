@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_TOOLS_H
-#define PI_HARNESS_TOOLS_H
+#ifndef RIG_HARNESS_TOOLS_H
+#define RIG_HARNESS_TOOLS_H
 
 #include "ai/types.h"
 #include "harness/permissions.h"
@@ -13,7 +13,7 @@ Tool tool_grep_create(void);
 Tool tool_ls_create(void);
 Tool tool_introspect_create(void);
 
-void introspect_tool_set_context(PiExtensionAPI *api, PermissionSet *perms,
+void introspect_tool_set_context(RigExtensionAPI *api, PermissionSet *perms,
                                   const Tool *tools, int tool_count,
                                   const char *cwd);
 

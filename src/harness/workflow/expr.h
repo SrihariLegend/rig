@@ -1,5 +1,5 @@
-#ifndef PI_WORKFLOW_EXPR_H
-#define PI_WORKFLOW_EXPR_H
+#ifndef RIG_WORKFLOW_EXPR_H
+#define RIG_WORKFLOW_EXPR_H
 
 #include "workflow.h"
 #include <stdbool.h>

@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_SKILLS_H
-#define PI_HARNESS_SKILLS_H
+#ifndef RIG_HARNESS_SKILLS_H
+#define RIG_HARNESS_SKILLS_H
 
 #include <stdbool.h>
 

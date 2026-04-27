@@ -1,5 +1,5 @@
-#ifndef PI_AI_TRANSFORM_H
-#define PI_AI_TRANSFORM_H
+#ifndef RIG_AI_TRANSFORM_H
+#define RIG_AI_TRANSFORM_H
 
 #include "types.h"
 

@@ -11,15 +11,15 @@
 #include <sys/stat.h>
 
 static const struct { const char *provider; const char *env_vars[4]; } key_map[] = {
-    { "anthropic",  { "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY", NULL } },
-    { "openai",     { "OPENAI_API_KEY", NULL } },
-    { "google",     { "GOOGLE_API_KEY", "GEMINI_API_KEY", NULL } },
-    { "mistral",    { "MISTRAL_API_KEY", NULL } },
-    { "deepseek",   { "DEEPSEEK_API_KEY", NULL } },
-    { "xai",        { "XAI_API_KEY", NULL } },
-    { "groq",       { "GROQ_API_KEY", NULL } },
-    { "openrouter", { "OPENROUTER_API_KEY", NULL } },
-    { "bedrock",    { "AWS_BEARER_TOKEN_BEDROCK", "BEDROCK_API_KEY", "AWS_ACCESS_KEY_ID", NULL } },
+    { "anthropic",  { "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_ARIG_KEY", NULL } },
+    { "openai",     { "OPENAI_ARIG_KEY", NULL } },
+    { "google",     { "GOOGLE_ARIG_KEY", "GEMINI_ARIG_KEY", NULL } },
+    { "mistral",    { "MISTRAL_ARIG_KEY", NULL } },
+    { "deepseek",   { "DEEPSEEK_ARIG_KEY", NULL } },
+    { "xai",        { "XAI_ARIG_KEY", NULL } },
+    { "groq",       { "GROQ_ARIG_KEY", NULL } },
+    { "openrouter", { "OPENROUTER_ARIG_KEY", NULL } },
+    { "bedrock",    { "AWS_BEARER_TOKEN_BEDROCK", "BEDROCK_ARIG_KEY", "AWS_ACCESS_KEY_ID", NULL } },
 };
 
 static const int key_map_count = sizeof(key_map) / sizeof(key_map[0]);
@@ -164,7 +164,7 @@ char *auth_get_api_key(const char *provider) {
         if (strcmp(provider, "bedrock") == 0) {
             if (creds->api_key) {
                 setenv("AWS_BEARER_TOKEN_BEDROCK", creds->api_key, 0);
-                setenv("BEDROCK_API_KEY", creds->api_key, 0);
+                setenv("BEDROCK_ARIG_KEY", creds->api_key, 0);
                 if (creds->aws_region)
                     setenv("AWS_REGION", creds->aws_region, 0);
                 char *key = strdup(creds->api_key);

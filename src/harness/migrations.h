@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_MIGRATIONS_H
-#define PI_HARNESS_MIGRATIONS_H
+#ifndef RIG_HARNESS_MIGRATIONS_H
+#define RIG_HARNESS_MIGRATIONS_H
 
 #include "harness/session.h"
 #include <stdbool.h>

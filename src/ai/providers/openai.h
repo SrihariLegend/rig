@@ -1,5 +1,5 @@
-#ifndef PI_PROVIDER_OPENAI_H
-#define PI_PROVIDER_OPENAI_H
+#ifndef RIG_PROVIDER_OPENAI_H
+#define RIG_PROVIDER_OPENAI_H
 
 #include "ai/registry.h"
 

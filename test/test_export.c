@@ -8,7 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static const char *TEST_DIR = "/tmp/pi_test_export";
+static const char *TEST_DIR = "/tmp/rig_test_export";
 
 static void cleanup_test_dir(void) {
     char cmd[256];
@@ -221,7 +221,7 @@ TEST(export_to_file) {
     cleanup_test_dir();
     Session *s = make_session_with_user_msg("file test");
 
-    const char *out_path = "/tmp/pi_test_export/output.html";
+    const char *out_path = "/tmp/rig_test_export/output.html";
     fs_mkdir_p(TEST_DIR);
     ExportConfig cfg = export_config_defaults();
     int rc = session_export_html(s, out_path, &cfg);

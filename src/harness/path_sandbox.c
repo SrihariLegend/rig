@@ -86,10 +86,10 @@ static char *get_home_config_path(void) {
     }
     if (!home) return NULL;
 
-    size_t len = strlen(home) + 5; /* "/.pi" + null */
+    size_t len = strlen(home) + 6; /* "/.rig" + null */
     char *path = malloc(len);
     if (!path) return NULL;
-    snprintf(path, len, "%s/.pi", home);
+    snprintf(path, len, "%s/.rig", home);
     return path;
 }
 

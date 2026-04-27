@@ -256,7 +256,7 @@ static cJSON *build_body(const Model *model, const Message *messages, int msg_co
 static const char *get_bedrock_api_key(void) {
     const char *key = getenv("AWS_BEARER_TOKEN_BEDROCK");
     if (key && key[0]) return key;
-    key = getenv("BEDROCK_API_KEY");
+    key = getenv("BEDROCK_ARIG_KEY");
     if (key && key[0]) return key;
     return NULL;
 }

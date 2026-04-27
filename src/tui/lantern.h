@@ -1,5 +1,5 @@
-#ifndef PI_LANTERN_H
-#define PI_LANTERN_H
+#ifndef RIG_LANTERN_H
+#define RIG_LANTERN_H
 
 #include <stdbool.h>
 #include <stdint.h>

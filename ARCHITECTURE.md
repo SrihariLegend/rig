@@ -31,7 +31,7 @@ with zero ambiguity.
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ L5: Modes (interactive.c, print.c, rpc.c)                                  │
-│     + SDK embedding (pi.h)                                                  │
+│     + SDK embedding (rig.h)                                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ L4: Harness (session.c, settings.c, tools/*.c, skills.c, prompts.c,       │
 │     themes.c, packages.c, compaction.c, system_prompt.c, auth.c,          │
@@ -134,7 +134,7 @@ harness/modes/interactive.c : tui/*, harness/*, agent/*
 harness/modes/print.c       : harness/*, agent/*
 harness/modes/rpc.c         : harness/*, agent/*, util/json.h
 
-include/pi.h          : ai/types.h, agent/agent.h, harness/extensions/types.h
+include/rig.h          : ai/types.h, agent/agent.h, harness/extensions/types.h
 ```
 
 ### Runtime-Only Dependencies (not compile-time)
@@ -253,7 +253,7 @@ User types in editor
 ### 2.2 Print Mode: Prompt to stdout
 
 ```
-CLI: pi -p "prompt"
+CLI: rig -p "prompt"
        │
        v
   [main.c: parseArgs()]
@@ -318,20 +318,20 @@ Editor (VS Code) ──stdin──> [rpc.c]
 Host application
        │
        v
-  #include <pi.h>
+  #include <rig.h>
        │
-       ├── pi_session_create(config) ──> [session.c, settings.c, auth.c]
+       ├── rig_session_create(config) ──> [session.c, settings.c, auth.c]
        │
-       ├── pi_session_prompt(session, "text")
+       ├── rig_session_prompt(session, "text")
        │     │
        │     └── [agent.c loop] ──> events via callback
-       │           pi_subscribe(session, callback, userdata)
+       │           rig_subscribe(session, callback, userdata)
        │
-       ├── pi_session_abort(session)
+       ├── rig_session_abort(session)
        │
-       ├── pi_session_get_state(session) ──> AgentState snapshot
+       ├── rig_session_get_state(session) ──> AgentState snapshot
        │
-       └── pi_session_destroy(session) ──> free all resources
+       └── rig_session_destroy(session) ──> free all resources
 ```
 
 ---
@@ -368,7 +368,7 @@ Host application
 | `SettingsManager.merged` | cJSON | SettingsManager | Until next merge | cJSON_Delete on recompute |
 | `WorkflowContext` | malloc | Executor | Workflow execution | workflow_context_free() |
 | `WorkflowContext.variables` | cJSON | WorkflowContext | Until overwritten | cJSON_Delete per key |
-| `PiExtensionAPI` | malloc | ExtensionRunner | Extension lifetime | Extension unload |
+| `RigExtensionAPI` | malloc | ExtensionRunner | Extension lifetime | Extension unload |
 | `lua_State` | lua_newstate | Extension loader | Extension lifetime | lua_close on unload |
 | `Theme` | malloc | Theme registry | Until hot-reload | theme_destroy on reload |
 | `Skill` | malloc | Skills registry | Session-scoped | Freed on reload |
@@ -625,16 +625,16 @@ All C functions use this convention:
 int function_name(args..., output_params...);
 
 // Error codes (defined in util/errors.h)
-#define PI_OK          0
-#define PI_ERR        -1    // Generic error
-#define PI_ERR_ALLOC  -2    // Memory allocation failed
-#define PI_ERR_IO     -3    // File/network I/O error
-#define PI_ERR_PARSE  -4    // JSON/YAML/SSE parse error
-#define PI_ERR_AUTH   -5    // Authentication error
-#define PI_ERR_ABORT  -6    // Operation aborted by user
-#define PI_ERR_LIMIT  -7    // Token/cost/iteration limit exceeded
-#define PI_ERR_VALIDATE -8  // Schema validation error
-#define PI_ERR_NOT_FOUND -9 // Resource not found
+#define RIG_OK          0
+#define RIG_ERR        -1    // Generic error
+#define RIG_ERR_ALLOC  -2    // Memory allocation failed
+#define RIG_ERR_IO     -3    // File/network I/O error
+#define RIG_ERR_PARSE  -4    // JSON/YAML/SSE parse error
+#define RIG_ERR_AUTH   -5    // Authentication error
+#define RIG_ERR_ABORT  -6    // Operation aborted by user
+#define RIG_ERR_LIMIT  -7    // Token/cost/iteration limit exceeded
+#define RIG_ERR_VALIDATE -8  // Schema validation error
+#define RIG_ERR_NOT_FOUND -9 // Resource not found
 ```
 
 ### 5.3 Error Context
@@ -643,9 +643,9 @@ Functions that can fail carry an error context string:
 
 ```c
 // Thread-local error message
-void pi_set_error(const char *fmt, ...);
-const char *pi_get_error(void);
-void pi_clear_error(void);
+void rig_set_error(const char *fmt, ...);
+const char *rig_get_error(void);
+void rig_clear_error(void);
 ```
 
 ### 5.4 Provider-Specific Error Handling
@@ -723,7 +723,7 @@ Build order     File                  Depends on
 33              main.c                harness/modes/print
 ```
 
-**MILESTONE: pi -p "hello" works end-to-end.**
+**MILESTONE: rig -p "hello" works end-to-end.**
 
 ### Phase 4: Session & Resources
 
@@ -797,7 +797,7 @@ Build order     File                  Depends on
 ### Phase 9: SDK & Polish
 
 ```
-78              include/pi.h          (public API, wraps harness/*)
+78              include/rig.h          (public API, wraps harness/*)
 ```
 
 ---
@@ -1003,7 +1003,7 @@ Settings settings_get_merged(SettingsManager *sm);  // returns copy of merged se
 ModelRegistry *model_registry_create(const char *auth_path, const char *models_json_path);
 void           model_registry_destroy(ModelRegistry *r);
 Model         *model_registry_resolve(ModelRegistry *r, const char *pattern);
-int            model_registry_get_api_key(ModelRegistry *r, const char *provider, char **key);
+int            model_registry_get_arig_key(ModelRegistry *r, const char *provider, char **key);
 Model        **model_registry_get_models(ModelRegistry *r, const char *provider, int *count);
 
 // system_prompt.h
@@ -1052,7 +1052,7 @@ bool      key_matches(const char *raw, size_t len, const char *key_id);
 ```c
 // loader.h
 int  extensions_discover(const char **paths, int count, LoadedExtension **out, int *out_count);
-int  extensions_load(LoadedExtension *exts, int count, PiExtensionAPI *api);
+int  extensions_load(LoadedExtension *exts, int count, RigExtensionAPI *api);
 void extensions_unload(LoadedExtension *exts, int count);
 
 // runner.h
@@ -1078,16 +1078,16 @@ void  bus_subscribe(EventBus *bus, const char *channel,
 Defaults (compiled into settings.c)
     │
     v
-Global settings (~/.pi/agent/settings.json)
+Global settings (~/.rig/agent/settings.json)
     │
     v
-Project settings (.pi/settings.json)
+Project settings (.rig/settings.json)
     │
     v
 CLI arguments (--model, --thinking, --tools, etc.)
     │
     v
-Extension overrides (pi.setModel(), pi.setThinkingLevel(), etc.)
+Extension overrides (rig.setModel(), rig.setThinkingLevel(), etc.)
     │
     v
 Final effective settings
@@ -1139,20 +1139,20 @@ Final effective settings
 ### 8.5 Path Resolution
 
 ```
-Config directory:    ~/.pi/agent/
-Sessions directory:  ~/.pi/agent/sessions/--<encoded-cwd>--/
-Auth file:           ~/.pi/agent/auth.json
-Global settings:     ~/.pi/agent/settings.json
-Models override:     ~/.pi/agent/models.json
-Keybindings:         ~/.pi/agent/keybindings.json
-Project settings:    <cwd>/.pi/settings.json
-Project extensions:  <cwd>/.pi/extensions/
-Project skills:      <cwd>/.pi/skills/
-Project prompts:     <cwd>/.pi/prompts/
-Project themes:      <cwd>/.pi/themes/
-Context files:       Walk from <cwd> to root: .pi/CONTEXT.md, AGENTS.md
-Package install dir: ~/.pi/agent/packages/<package-name>/
-Workflow checkpoints: ~/.pi/agent/workflows/checkpoints/
+Config directory:    ~/.rig/agent/
+Sessions directory:  ~/.rig/agent/sessions/--<encoded-cwd>--/
+Auth file:           ~/.rig/agent/auth.json
+Global settings:     ~/.rig/agent/settings.json
+Models override:     ~/.rig/agent/models.json
+Keybindings:         ~/.rig/agent/keybindings.json
+Project settings:    <cwd>/.rig/settings.json
+Project extensions:  <cwd>/.rig/extensions/
+Project skills:      <cwd>/.rig/skills/
+Project prompts:     <cwd>/.rig/prompts/
+Project themes:      <cwd>/.rig/themes/
+Context files:       Walk from <cwd> to root: .rig/CONTEXT.md, AGENTS.md
+Package install dir: ~/.rig/agent/packages/<package-name>/
+Workflow checkpoints: ~/.rig/agent/workflows/checkpoints/
 ```
 
 ---
@@ -1162,19 +1162,19 @@ Workflow checkpoints: ~/.pi/agent/workflows/checkpoints/
 ### 9.1 ABI Version
 
 ```c
-#define PI_ABI_VERSION 1
+#define RIG_ABI_VERSION 1
 
 // Extensions must export this. Pi refuses to load mismatched versions.
-PI_EXPORT int pi_abi_version(void) { return PI_ABI_VERSION; }
+RIG_EXPORT int rig_abi_version(void) { return RIG_ABI_VERSION; }
 ```
 
 ABI version increments when:
-- Any struct in `pi.h` changes size or field order
-- Any function pointer signature in `PiExtensionAPI` changes
-- Any enum in `pi.h` adds/removes/reorders values
+- Any struct in `rig.h` changes size or field order
+- Any function pointer signature in `RigExtensionAPI` changes
+- Any enum in `rig.h` adds/removes/reorders values
 
 ABI version does NOT increment when:
-- New functions are APPENDED to `PiExtensionAPI` (struct grows, old offsets stable)
+- New functions are APPENDED to `RigExtensionAPI` (struct grows, old offsets stable)
 - New enum values are APPENDED at end
 - Bug fixes in Pi internals
 
@@ -1184,7 +1184,7 @@ These structs are part of the ABI and must not change layout without a version b
 
 ```c
 // All fields, order, and sizes are ABI-stable:
-typedef struct PiExtensionAPI { ... };  // function pointer table
+typedef struct RigExtensionAPI { ... };  // function pointer table
 typedef struct ContentBlock { ... };
 typedef struct Message { ... };
 typedef struct AgentMessage { ... };
@@ -1211,25 +1211,25 @@ typedef struct WorkflowContext WorkflowContext; // opaque
 
 ```c
 // Required: initialization
-PI_EXPORT void pi_extension_init(PiExtensionAPI *pi);
+RIG_EXPORT void rig_extension_init(RigExtensionAPI *rig);
 
 // Required: ABI version check
-PI_EXPORT int pi_abi_version(void);
+RIG_EXPORT int rig_abi_version(void);
 
 // Optional: dependency declaration
-PI_EXPORT const char **pi_extension_depends(int *count);
+RIG_EXPORT const char **rig_extension_depends(int *count);
 
 // Optional: metadata
-PI_EXPORT const char *pi_extension_name(void);
-PI_EXPORT const char *pi_extension_version(void);
-PI_EXPORT const char *pi_extension_description(void);
+RIG_EXPORT const char *rig_extension_name(void);
+RIG_EXPORT const char *rig_extension_version(void);
+RIG_EXPORT const char *rig_extension_description(void);
 ```
 
 ### 9.5 Calling Convention
 
-- All function pointers in `PiExtensionAPI` use C calling convention (`cdecl`)
+- All function pointers in `RigExtensionAPI` use C calling convention (`cdecl`)
 - All strings are UTF-8, NUL-terminated
-- All JSON data is passed as `cJSON *` (from vendored cJSON, same version as pi-c)
+- All JSON data is passed as `cJSON *` (from vendored cJSON, same version as rig)
 - Extensions must NOT free `cJSON *` values received from Pi (borrowed)
 - Extensions must allocate `cJSON *` values returned to Pi (Pi takes ownership)
 - All callbacks receive a `void *ctx` userdata pointer
@@ -1240,11 +1240,11 @@ Lua extensions have no binary ABI -- they use the Lua C API:
 
 ```lua
 -- Required: init function
-function init(pi)
-    -- pi is a Lua table with methods matching PiExtensionAPI
-    pi:on("event_name", handler_function)
-    pi:register_tool(tool_table)
-    pi:register_command("name", handler_function)
+function init(rig)
+    -- rig is a Lua table with methods matching RigExtensionAPI
+    rig:on("event_name", handler_function)
+    rig:register_tool(tool_table)
+    rig:register_command("name", handler_function)
 end
 
 -- Optional: dependency declaration

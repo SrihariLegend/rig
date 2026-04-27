@@ -1,5 +1,5 @@
-#ifndef PI_WORKFLOW_H
-#define PI_WORKFLOW_H
+#ifndef RIG_WORKFLOW_H
+#define RIG_WORKFLOW_H
 
 #include "cjson/cJSON.h"
 #include <stdbool.h>
@@ -97,7 +97,7 @@ struct WorkflowContext {
     cJSON *variables;
     cJSON *metadata;
     void *agent;
-    void *pi;
+    void *rig;
     void (*on_step_complete)(WorkflowContext *ctx, WorkflowStep *step, cJSON *result);
     void (*on_gate_request)(WorkflowContext *ctx, WorkflowStep *step, const char *message);
     bool aborted;

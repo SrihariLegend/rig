@@ -1,5 +1,5 @@
-#ifndef PI_VEC_H
-#define PI_VEC_H
+#ifndef RIG_VEC_H
+#define RIG_VEC_H
 
 #include <stdlib.h>
 #include <string.h>

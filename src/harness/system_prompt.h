@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_SYSTEM_PROMPT_H
-#define PI_HARNESS_SYSTEM_PROMPT_H
+#ifndef RIG_HARNESS_SYSTEM_PROMPT_H
+#define RIG_HARNESS_SYSTEM_PROMPT_H
 
 #include "ai/types.h"
 

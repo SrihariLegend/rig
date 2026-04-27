@@ -1,5 +1,5 @@
-#ifndef PI_MODE_RPC_H
-#define PI_MODE_RPC_H
+#ifndef RIG_MODE_RPC_H
+#define RIG_MODE_RPC_H
 
 #include "ai/types.h"
 #include "harness/extensions/extension.h"
@@ -7,11 +7,11 @@
 typedef struct {
     int input_fd;
     int output_fd;
-    PiExtensionAPI *api;
+    RigExtensionAPI *api;
     bool running;
 } RPCServer;
 
-RPCServer *rpc_server_create(PiExtensionAPI *api);
+RPCServer *rpc_server_create(RigExtensionAPI *api);
 void rpc_server_free(RPCServer *server);
 
 int rpc_server_start(RPCServer *server);

@@ -1,5 +1,5 @@
-#ifndef PI_PROVIDER_MISTRAL_H
-#define PI_PROVIDER_MISTRAL_H
+#ifndef RIG_PROVIDER_MISTRAL_H
+#define RIG_PROVIDER_MISTRAL_H
 
 #include "ai/registry.h"
 

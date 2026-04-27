@@ -1,5 +1,5 @@
-#ifndef PI_PROVIDER_SIGV4_H
-#define PI_PROVIDER_SIGV4_H
+#ifndef RIG_PROVIDER_SIGV4_H
+#define RIG_PROVIDER_SIGV4_H
 
 /*
  * AWS Signature Version 4 request signing.

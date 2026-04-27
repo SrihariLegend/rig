@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-RPCServer *rpc_server_create(PiExtensionAPI *api) {
+RPCServer *rpc_server_create(RigExtensionAPI *api) {
     RPCServer *server = calloc(1, sizeof(RPCServer));
     if (!server) return NULL;
 
@@ -174,7 +174,7 @@ int rpc_handle_message(RPCServer *server, const char *json_line) {
     } else if (strcmp(req->method, "version") == 0) {
         cJSON *result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "version", "0.1.0");
-        cJSON_AddNumberToObject(result, "abi", PI_ABI_VERSION);
+        cJSON_AddNumberToObject(result, "abi", RIG_ABI_VERSION);
         resp->result = result;
     } else if (strcmp(req->method, "list_tools") == 0) {
         cJSON *tools = cJSON_CreateArray();

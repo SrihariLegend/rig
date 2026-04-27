@@ -1,5 +1,5 @@
-#ifndef PI_TERMINAL_H
-#define PI_TERMINAL_H
+#ifndef RIG_TERMINAL_H
+#define RIG_TERMINAL_H
 
 #include <stdbool.h>
 #include <stddef.h>

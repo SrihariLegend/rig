@@ -36,9 +36,9 @@ TEST(project_path_allowed) {
     /* Non-existent file in existing parent resolves via parent */
     ASSERT_TRUE(sandbox_check(sb, "/tmp/somefile.txt"));
     /* For deeper non-existent paths, create the intermediate dir */
-    mkdir("/tmp/pi_sandbox_subdir", 0755);
-    ASSERT_TRUE(sandbox_check(sb, "/tmp/pi_sandbox_subdir/file.txt"));
-    rmdir("/tmp/pi_sandbox_subdir");
+    mkdir("/tmp/rig_sandbox_subdir", 0755);
+    ASSERT_TRUE(sandbox_check(sb, "/tmp/rig_sandbox_subdir/file.txt"));
+    rmdir("/tmp/rig_sandbox_subdir");
     sandbox_free(sb);
 }
 
@@ -46,8 +46,8 @@ TEST(project_path_allowed) {
 
 TEST(parent_path_blocked) {
     /* Create a subdirectory to use as project root */
-    mkdir("/tmp/pi_sandbox_test", 0755);
-    PathSandbox *sb = sandbox_create("/tmp/pi_sandbox_test");
+    mkdir("/tmp/rig_sandbox_test", 0755);
+    PathSandbox *sb = sandbox_create("/tmp/rig_sandbox_test");
     ASSERT_NOT_NULL(sb);
 
     /* Parent of project root should be blocked */
@@ -55,44 +55,44 @@ TEST(parent_path_blocked) {
     ASSERT_FALSE(sandbox_check(sb, "/var/log/syslog"));
 
     sandbox_free(sb);
-    rmdir("/tmp/pi_sandbox_test");
+    rmdir("/tmp/rig_sandbox_test");
 }
 
 /* ========== Traversal blocked ========== */
 
 TEST(traversal_blocked) {
-    mkdir("/tmp/pi_sandbox_test2", 0755);
-    PathSandbox *sb = sandbox_create("/tmp/pi_sandbox_test2");
+    mkdir("/tmp/rig_sandbox_test2", 0755);
+    PathSandbox *sb = sandbox_create("/tmp/rig_sandbox_test2");
     ASSERT_NOT_NULL(sb);
 
     /* Path traversal via .. should resolve outside sandbox */
-    ASSERT_FALSE(sandbox_check(sb, "/tmp/pi_sandbox_test2/../../../etc/passwd"));
+    ASSERT_FALSE(sandbox_check(sb, "/tmp/rig_sandbox_test2/../../../etc/passwd"));
 
     sandbox_free(sb);
-    rmdir("/tmp/pi_sandbox_test2");
+    rmdir("/tmp/rig_sandbox_test2");
 }
 
 /* ========== /tmp allowed after sandbox_allow ========== */
 
 TEST(additional_path_allowed) {
-    mkdir("/tmp/pi_sandbox_root", 0755);
-    mkdir("/tmp/pi_sandbox_extra", 0755);
+    mkdir("/tmp/rig_sandbox_root", 0755);
+    mkdir("/tmp/rig_sandbox_extra", 0755);
 
-    PathSandbox *sb = sandbox_create("/tmp/pi_sandbox_root");
+    PathSandbox *sb = sandbox_create("/tmp/rig_sandbox_root");
     ASSERT_NOT_NULL(sb);
 
     /* Extra path not allowed initially */
-    ASSERT_FALSE(sandbox_check(sb, "/tmp/pi_sandbox_extra/file.txt"));
+    ASSERT_FALSE(sandbox_check(sb, "/tmp/rig_sandbox_extra/file.txt"));
 
     /* Add it */
-    ASSERT_EQ(sandbox_allow(sb, "/tmp/pi_sandbox_extra"), 0);
+    ASSERT_EQ(sandbox_allow(sb, "/tmp/rig_sandbox_extra"), 0);
 
     /* Now it should be allowed */
-    ASSERT_TRUE(sandbox_check(sb, "/tmp/pi_sandbox_extra/file.txt"));
+    ASSERT_TRUE(sandbox_check(sb, "/tmp/rig_sandbox_extra/file.txt"));
 
     sandbox_free(sb);
-    rmdir("/tmp/pi_sandbox_root");
-    rmdir("/tmp/pi_sandbox_extra");
+    rmdir("/tmp/rig_sandbox_root");
+    rmdir("/tmp/rig_sandbox_extra");
 }
 
 TEST(allow_duplicate_ok) {
@@ -112,20 +112,20 @@ TEST(allow_null_rejected) {
 /* ========== Symlink blocked ========== */
 
 TEST(symlink_outside_blocked) {
-    mkdir("/tmp/pi_sandbox_sym", 0755);
-    PathSandbox *sb = sandbox_create("/tmp/pi_sandbox_sym");
+    mkdir("/tmp/rig_sandbox_sym", 0755);
+    PathSandbox *sb = sandbox_create("/tmp/rig_sandbox_sym");
     sb->allow_home_config = false;
 
     /* Create a symlink inside sandbox pointing outside */
-    unlink("/tmp/pi_sandbox_sym/escape");
-    symlink("/etc", "/tmp/pi_sandbox_sym/escape");
+    unlink("/tmp/rig_sandbox_sym/escape");
+    symlink("/etc", "/tmp/rig_sandbox_sym/escape");
 
     /* The resolved path is /etc, which is outside sandbox */
-    ASSERT_FALSE(sandbox_check(sb, "/tmp/pi_sandbox_sym/escape/passwd"));
+    ASSERT_FALSE(sandbox_check(sb, "/tmp/rig_sandbox_sym/escape/passwd"));
 
-    unlink("/tmp/pi_sandbox_sym/escape");
+    unlink("/tmp/rig_sandbox_sym/escape");
     sandbox_free(sb);
-    rmdir("/tmp/pi_sandbox_sym");
+    rmdir("/tmp/rig_sandbox_sym");
 }
 
 /* ========== Resolve ========== */
@@ -140,15 +140,15 @@ TEST(resolve_valid_path) {
 }
 
 TEST(resolve_blocked_returns_null) {
-    mkdir("/tmp/pi_sandbox_resolve", 0755);
-    PathSandbox *sb = sandbox_create("/tmp/pi_sandbox_resolve");
+    mkdir("/tmp/rig_sandbox_resolve", 0755);
+    PathSandbox *sb = sandbox_create("/tmp/rig_sandbox_resolve");
     sb->allow_home_config = false;
 
     char *resolved = sandbox_resolve(sb, "/etc/passwd");
     ASSERT_NULL(resolved);
 
     sandbox_free(sb);
-    rmdir("/tmp/pi_sandbox_resolve");
+    rmdir("/tmp/rig_sandbox_resolve");
 }
 
 /* ========== NULL checks ========== */

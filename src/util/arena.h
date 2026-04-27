@@ -1,5 +1,5 @@
-#ifndef PI_ARENA_H
-#define PI_ARENA_H
+#ifndef RIG_ARENA_H
+#define RIG_ARENA_H
 
 #include <stddef.h>
 

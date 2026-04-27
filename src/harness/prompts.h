@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_PROMPTS_H
-#define PI_HARNESS_PROMPTS_H
+#ifndef RIG_HARNESS_PROMPTS_H
+#define RIG_HARNESS_PROMPTS_H
 
 typedef struct {
     char *name;             // filename without .md

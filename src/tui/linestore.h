@@ -1,5 +1,5 @@
-#ifndef PI_LINESTORE_H
-#define PI_LINESTORE_H
+#ifndef RIG_LINESTORE_H
+#define RIG_LINESTORE_H
 
 #include <stdint.h>
 #include <stdbool.h>

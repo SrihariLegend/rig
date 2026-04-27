@@ -1,5 +1,5 @@
-#ifndef PI_AI_VALIDATION_H
-#define PI_AI_VALIDATION_H
+#ifndef RIG_AI_VALIDATION_H
+#define RIG_AI_VALIDATION_H
 
 #include "types.h"
 

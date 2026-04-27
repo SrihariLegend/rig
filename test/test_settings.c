@@ -9,8 +9,8 @@
 #include <unistd.h>
 
 static void cleanup(void) {
-    unlink("/tmp/pi_test_global_settings.json");
-    unlink("/tmp/pi_test_project_settings.json");
+    unlink("/tmp/rig_test_global_settings.json");
+    unlink("/tmp/rig_test_project_settings.json");
 }
 
 TEST(settings_create_basic) {
@@ -32,8 +32,8 @@ TEST(settings_defaults_present) {
 }
 
 TEST(settings_three_layer_merge) {
-    const char *gp = "/tmp/pi_test_global_settings.json";
-    const char *pp = "/tmp/pi_test_project_settings.json";
+    const char *gp = "/tmp/rig_test_global_settings.json";
+    const char *pp = "/tmp/rig_test_project_settings.json";
     cleanup();
     /* Write global: theme=dark */
     cJSON *g = cJSON_CreateObject();
@@ -86,7 +86,7 @@ TEST(settings_typed_getters) {
 }
 
 TEST(settings_flush_reload) {
-    const char *gp = "/tmp/pi_test_global_settings.json";
+    const char *gp = "/tmp/rig_test_global_settings.json";
     cleanup();
     SettingsManager *sm = settings_create(gp, NULL);
     settings_set(sm, SETTINGS_GLOBAL, "saved_key", cJSON_CreateString("saved_val"));

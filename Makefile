@@ -59,7 +59,7 @@ TUI_OBJ = $(TUI_SRC:.c=.o)
 RPC_SRC = src/harness/modes/rpc.c
 RPC_OBJ = $(RPC_SRC:.c=.o)
 
-SDK_SRC = src/pi.c
+SDK_SRC = src/rig.c
 SDK_OBJ = $(SDK_SRC:.c=.o)
 
 ALL_OBJ = $(DEPS_OBJ) $(UTIL_OBJ) $(AI_OBJ) $(AGENT_OBJ) $(HARNESS_OBJ) \

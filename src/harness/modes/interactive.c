@@ -1,5 +1,5 @@
 #include "interactive.h"
-#include "pi.h"
+#include "rig.h"
 #include "harness/tools/tools.h"
 #include "harness/model_registry.h"
 #include "ai/providers/anthropic.h"
@@ -36,7 +36,7 @@ typedef enum {
 } InteractivePhase;
 
 typedef struct {
-    PiInstance *pi;
+    RigInstance *rig;
     Session *session;
     AgentState *agent;
     AgentLoopConfig agent_config;
@@ -228,14 +228,14 @@ static int lua_tool_execute(const char *call_id, cJSON *params, void *signal,
 
     extern InteractiveState *g_interactive_state;
     InteractiveState *istate = g_interactive_state;
-    if (!istate || !istate->pi || !istate->pi->api || !lua_tool_current_name) {
+    if (!istate || !istate->rig || !istate->rig->api || !lua_tool_current_name) {
         *content = malloc(sizeof(ContentBlock));
         (*content)[0] = content_text("lua tool: no context", NULL);
         *content_count = 1;
         return -1;
     }
 
-    PiExtensionAPI *eapi = istate->pi->api;
+    RigExtensionAPI *eapi = istate->rig->api;
     char *result = NULL;
     int rc = -1;
     for (int i = 0; i < eapi->extension_count; i++) {
@@ -1678,8 +1678,8 @@ static bool handle_slash_command(InteractiveState *state) {
         /* /ext list */
         if (strcmp(subcmd, "list") == 0) {
             pthread_mutex_lock(&state->mutex);
-            if (state->pi && state->pi->api) {
-                PiExtensionAPI *api = state->pi->api;
+            if (state->rig && state->rig->api) {
+                RigExtensionAPI *api = state->rig->api;
                 if (api->extension_count == 0) {
                     cmd_output(state, "no extensions loaded");
                 } else {
@@ -1711,9 +1711,9 @@ static bool handle_slash_command(InteractiveState *state) {
             /* Find extension by name and delete file */
             pthread_mutex_lock(&state->mutex);
             bool found = false;
-            if (state->pi && state->pi->api) {
-                for (int i = 0; i < state->pi->api->extension_count; i++) {
-                    Extension *ext = state->pi->api->extensions[i];
+            if (state->rig && state->rig->api) {
+                for (int i = 0; i < state->rig->api->extension_count; i++) {
+                    Extension *ext = state->rig->api->extensions[i];
                     if (ext && ext->name && strstr(ext->name, subarg)) {
                         if (ext->path && fs_exists(ext->path)) {
                             unlink(ext->path);
@@ -1737,9 +1737,9 @@ static bool handle_slash_command(InteractiveState *state) {
             cmd_output(state, "reloading extensions...");
             pthread_mutex_unlock(&state->mutex);
 
-            if (state->pi && state->pi->api) {
+            if (state->rig && state->rig->api) {
                 /* Free existing Lua extension states */
-                PiExtensionAPI *api = state->pi->api;
+                RigExtensionAPI *api = state->rig->api;
                 for (int i = api->extension_count - 1; i >= 0; i--) {
                     Extension *ext = api->extensions[i];
                     if (ext && ext->is_lua && ext->lua_state) {
@@ -1779,7 +1779,7 @@ static bool handle_slash_command(InteractiveState *state) {
             pthread_mutex_lock(&state->mutex);
             char lbuf[128];
             snprintf(lbuf, sizeof(lbuf), "loaded %d extensions",
-                     state->pi && state->pi->api ? state->pi->api->extension_count : 0);
+                     state->rig && state->rig->api ? state->rig->api->extension_count : 0);
             cmd_output(state, lbuf);
             cmd_finish(state);
             return true;
@@ -1798,9 +1798,9 @@ static bool handle_slash_command(InteractiveState *state) {
 
             /* Find extension path */
             const char *ext_path = NULL;
-            if (state->pi && state->pi->api) {
-                for (int i = 0; i < state->pi->api->extension_count; i++) {
-                    Extension *ext = state->pi->api->extensions[i];
+            if (state->rig && state->rig->api) {
+                for (int i = 0; i < state->rig->api->extension_count; i++) {
+                    Extension *ext = state->rig->api->extensions[i];
                     if (ext && ext->name && strstr(ext->name, subarg) && ext->path) {
                         ext_path = ext->path;
                         break;
@@ -2074,8 +2074,8 @@ static bool handle_slash_command(InteractiveState *state) {
     }
 
     /* Check Lua-registered commands */
-    if (state->pi && state->pi->api) {
-        PiExtensionAPI *eapi = state->pi->api;
+    if (state->rig && state->rig->api) {
+        RigExtensionAPI *eapi = state->rig->api;
         for (int i = 0; i < eapi->command_count; i++) {
             if (eapi->commands[i].name && strcmp(eapi->commands[i].name, cmd) == 0) {
                 /* Build args array */
@@ -2293,17 +2293,17 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
 static volatile sig_atomic_t g_winch = 0;
 static void winch_handler(int sig) { (void)sig; g_winch = 1; }
 
-int interactive_mode_start(PiInstance *pi, const char *session_id,
+int interactive_mode_start(RigInstance *rig, const char *session_id,
                            const char *model_pattern, const char *provider) {
-    if (!pi) return -1;
+    if (!rig) return -1;
 
     const char *agent_dir = config_agent_dir();
     if (agent_dir) {
         fs_mkdir_p(agent_dir);
         char log_path[512];
         snprintf(log_path, sizeof(log_path), "%s/rig.log", agent_dir);
-        pi_log_open(log_path);
-        pi_log_set_level(LOG_DEBUG);
+        rig_log_open(log_path);
+        rig_log_set_level(LOG_DEBUG);
     }
     LOG_INFO("=== Pi starting ===");
 
@@ -2341,7 +2341,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     /* Create state */
     InteractiveState *state = calloc(1, sizeof(InteractiveState));
-    state->pi = pi;
+    state->rig = rig;
     state->model = model;
     state->api_key = api_key;
     state->phase = ISTATE_IDLE;
@@ -2425,9 +2425,9 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
         .mutex = &state->mutex,
         .running = &state->running,
     };
-    if (state->pi && state->pi->api) {
-        for (int i = 0; i < state->pi->api->extension_count; i++) {
-            Extension *ext = state->pi->api->extensions[i];
+    if (state->rig && state->rig->api) {
+        for (int i = 0; i < state->rig->api->extension_count; i++) {
+            Extension *ext = state->rig->api->extensions[i];
             if (ext && ext->is_lua && ext->lua_state) {
                 lua_ext_set_context((LuaExtState *)ext->lua_state, &lua_ctx);
             }
@@ -2436,9 +2436,9 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     /* Load project-local extensions */
     if (proj_dir) {
-        extension_discover_and_load(state->pi->api, proj_dir, NULL);
-        for (int i = 0; i < state->pi->api->extension_count; i++) {
-            Extension *ext = state->pi->api->extensions[i];
+        extension_discover_and_load(state->rig->api, proj_dir, NULL);
+        for (int i = 0; i < state->rig->api->extension_count; i++) {
+            Extension *ext = state->rig->api->extensions[i];
             if (ext && ext->is_lua && ext->lua_state) {
                 lua_ext_set_context((LuaExtState *)ext->lua_state, &lua_ctx);
             }
@@ -2446,8 +2446,8 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     }
 
     /* Merge extension-registered tools into agent's tool array */
-    if (state->pi && state->pi->api) {
-        PiExtensionAPI *eapi = state->pi->api;
+    if (state->rig && state->rig->api) {
+        RigExtensionAPI *eapi = state->rig->api;
         for (int i = 0; i < eapi->tool_count; i++) {
             Tool *et = eapi->tools[i];
             if (!et || !et->name) continue;
@@ -2494,7 +2494,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     /* Set introspect tool context */
     introspect_tool_set_context(
-        state->pi ? state->pi->api : NULL,
+        state->rig ? state->rig->api : NULL,
         state->perms,
         state->tools, state->tool_count,
         state->cwd);
@@ -2574,7 +2574,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     if (!model || !api_key) {
         linestore_add_error(state->store, "no API key configured");
         linestore_add_system(state->store,
-            "set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, MISTRAL_API_KEY, or AWS_BEARER_TOKEN_BEDROCK");
+            "set ANTHROPIC_ARIG_KEY, OPENAI_ARIG_KEY, GOOGLE_ARIG_KEY, MISTRAL_ARIG_KEY, or AWS_BEARER_TOKEN_BEDROCK");
         linestore_add_blank(state->store);
     }
 
@@ -2651,7 +2651,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
 
     ai_registry_cleanup();
     http_global_cleanup();
-    pi_log_close();
+    rig_log_close();
 
     return 0;
 }

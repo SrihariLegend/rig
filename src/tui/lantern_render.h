@@ -1,5 +1,5 @@
-#ifndef PI_LANTERN_RENDER_H
-#define PI_LANTERN_RENDER_H
+#ifndef RIG_LANTERN_RENDER_H
+#define RIG_LANTERN_RENDER_H
 
 #include "lantern.h"
 #include "linestore.h"

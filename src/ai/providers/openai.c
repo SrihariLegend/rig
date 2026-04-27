@@ -189,9 +189,9 @@ static int openai_stream(const Model *model, const Message *messages, int msg_co
     (void)options;
     if (!model || !cb) return -1;
 
-    const char *api_key = getenv("OPENAI_API_KEY");
+    const char *api_key = getenv("OPENAI_ARIG_KEY");
     if (!api_key) {
-        LOG_ERROR("OPENAI_API_KEY not set");
+        LOG_ERROR("OPENAI_ARIG_KEY not set");
         return -1;
     }
 

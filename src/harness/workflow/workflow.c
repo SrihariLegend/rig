@@ -736,7 +736,7 @@ static int execute_substep(WorkflowContext *ctx, WorkflowStep *step, cJSON *resu
         .variables = ctx->variables,
         .metadata = ctx->metadata,
         .agent = &cap,
-        .pi = ctx->pi,
+        .rig = ctx->rig,
         .on_step_complete = substep_on_complete,
         .on_gate_request = ctx->on_gate_request,
         .aborted = false,
@@ -766,7 +766,7 @@ typedef struct {
     cJSON *variables;      /* own copy */
     cJSON *metadata;       /* shared read-only ref */
     void *agent;
-    void *pi;
+    void *rig;
     void (*on_gate_request)(WorkflowContext *, WorkflowStep *, const char *);
     int rc;
     StepStatus status;
@@ -789,7 +789,7 @@ static void *parallel_thread_fn(void *arg) {
         .variables = pa->variables,
         .metadata = pa->metadata,
         .agent = pa->agent,
-        .pi = pa->pi,
+        .rig = pa->rig,
         .on_step_complete = NULL,
         .on_gate_request = pa->on_gate_request,
         .aborted = false,
@@ -907,7 +907,7 @@ static int execute_step(WorkflowContext *ctx, int step_idx) {
             }
             const char *tool_name = tool_name_json->valuestring;
 
-            PiExtensionAPI *api = (PiExtensionAPI *)ctx->pi;
+            RigExtensionAPI *api = (RigExtensionAPI *)ctx->rig;
             if (!api) {
                 char buf[256];
                 snprintf(buf, sizeof(buf), "no extension API available to execute tool '%s'", tool_name);
@@ -1109,7 +1109,7 @@ static int execute_step(WorkflowContext *ctx, int step_idx) {
                 args[i].variables = cJSON_Duplicate(ctx->variables, true);
                 args[i].metadata = ctx->metadata;
                 args[i].agent = ctx->agent;
-                args[i].pi = ctx->pi;
+                args[i].rig = ctx->rig;
                 args[i].on_gate_request = ctx->on_gate_request;
                 args[i].output = NULL;
 

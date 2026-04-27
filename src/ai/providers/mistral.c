@@ -56,9 +56,9 @@ static int mistral_stream(const Model *model, const Message *messages, int msg_c
     (void)options; (void)tools; (void)tool_count;
     if (!model || !cb) return -1;
 
-    const char *api_key = getenv("MISTRAL_API_KEY");
+    const char *api_key = getenv("MISTRAL_ARIG_KEY");
     if (!api_key) {
-        LOG_ERROR("MISTRAL_API_KEY not set");
+        LOG_ERROR("MISTRAL_ARIG_KEY not set");
         return -1;
     }
 

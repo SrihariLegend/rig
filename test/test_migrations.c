@@ -8,7 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static const char *TEST_DIR = "/tmp/pi_test_migrations";
+static const char *TEST_DIR = "/tmp/rig_test_migrations";
 
 static void cleanup_test_dir(void) {
     char cmd[256];

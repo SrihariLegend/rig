@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_EXPORT_H
-#define PI_HARNESS_EXPORT_H
+#ifndef RIG_HARNESS_EXPORT_H
+#define RIG_HARNESS_EXPORT_H
 
 #include "harness/session.h"
 #include <stdbool.h>

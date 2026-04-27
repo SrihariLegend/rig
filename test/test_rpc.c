@@ -81,7 +81,7 @@ TEST(rpc_format_notification_null) {
 }
 
 TEST(rpc_server_create_free) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     RPCServer *s = rpc_server_create(api);
     ASSERT_NOT_NULL(s);
     ASSERT_EQ(s->api, api);
@@ -90,7 +90,7 @@ TEST(rpc_server_create_free) {
 }
 
 TEST(rpc_handle_ping) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     RPCServer *s = rpc_server_create(api);
     /* redirect output to /dev/null */
     int old_fd = s->output_fd;
@@ -103,7 +103,7 @@ TEST(rpc_handle_ping) {
 }
 
 TEST(rpc_handle_version) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     RPCServer *s = rpc_server_create(api);
     s->output_fd = open("/dev/null", 1);
     rpc_handle_message(s, "{\"method\":\"version\",\"id\":\"2\"}");
@@ -113,7 +113,7 @@ TEST(rpc_handle_version) {
 }
 
 TEST(rpc_handle_shutdown) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     RPCServer *s = rpc_server_create(api);
     s->output_fd = open("/dev/null", 1);
     s->running = true;
@@ -125,7 +125,7 @@ TEST(rpc_handle_shutdown) {
 }
 
 TEST(rpc_handle_list_tools) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     Tool *t = calloc(1, sizeof(Tool));
     t->name = strdup("test_tool");
     extension_api_register_tool(api, t);
@@ -139,7 +139,7 @@ TEST(rpc_handle_list_tools) {
 }
 
 TEST(rpc_handle_unknown_method) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     RPCServer *s = rpc_server_create(api);
     s->output_fd = open("/dev/null", 1);
     rpc_handle_message(s, "{\"method\":\"nonexistent\",\"id\":\"5\"}");
@@ -149,7 +149,7 @@ TEST(rpc_handle_unknown_method) {
 }
 
 TEST(rpc_handle_invalid_json) {
-    PiExtensionAPI *api = extension_api_create();
+    RigExtensionAPI *api = extension_api_create();
     RPCServer *s = rpc_server_create(api);
     s->output_fd = open("/dev/null", 1);
     int rc = rpc_handle_message(s, "not json");

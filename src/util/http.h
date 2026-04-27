@@ -1,5 +1,5 @@
-#ifndef PI_HTTP_H
-#define PI_HTTP_H
+#ifndef RIG_HTTP_H
+#define RIG_HTTP_H
 
 #include "cjson/cJSON.h"
 #include <stdbool.h>

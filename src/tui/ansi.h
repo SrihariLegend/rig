@@ -1,5 +1,5 @@
-#ifndef PI_ANSI_H
-#define PI_ANSI_H
+#ifndef RIG_ANSI_H
+#define RIG_ANSI_H
 
 #include <stdbool.h>
 

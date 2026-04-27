@@ -10,13 +10,13 @@
 #include <stdio.h>
 #include <unistd.h>
 
-static PiExtensionAPI *introspect_api = NULL;
+static RigExtensionAPI *introspect_api = NULL;
 static PermissionSet *introspect_perms = NULL;
 static const Tool *introspect_tools = NULL;
 static int introspect_tool_count = 0;
 static const char *introspect_cwd = NULL;
 
-void introspect_tool_set_context(PiExtensionAPI *api, PermissionSet *perms,
+void introspect_tool_set_context(RigExtensionAPI *api, PermissionSet *perms,
                                   const Tool *tools, int tool_count,
                                   const char *cwd) {
     introspect_api = api;

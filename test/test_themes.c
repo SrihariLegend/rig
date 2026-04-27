@@ -56,7 +56,7 @@ TEST(theme_resolve_color_null) {
 }
 
 TEST(theme_load_from_file) {
-    const char *path = "/tmp/pi_test_theme.json";
+    const char *path = "/tmp/rig_test_theme.json";
     const char *json = "{\"name\":\"Test\",\"vars\":{\"primary\":\"#ff0000\"},\"colors\":{\"accent\":\"primary\"}}";
     fs_write_file(path, json, strlen(json));
 
@@ -79,7 +79,7 @@ TEST(theme_load_null) {
 }
 
 TEST(theme_load_missing) {
-    ASSERT_NULL(theme_load("/tmp/pi_nonexistent_theme.json"));
+    ASSERT_NULL(theme_load("/tmp/rig_nonexistent_theme.json"));
 }
 
 TEST(theme_free_null) {
@@ -87,11 +87,11 @@ TEST(theme_free_null) {
 }
 
 TEST(themes_discover_basic) {
-    const char *dir = "/tmp/pi_test_themes_dir";
-    system("rm -rf /tmp/pi_test_themes_dir");
+    const char *dir = "/tmp/rig_test_themes_dir";
+    system("rm -rf /tmp/rig_test_themes_dir");
     fs_mkdir_p(dir);
-    fs_write_file("/tmp/pi_test_themes_dir/dark.json", "{}", 2);
-    fs_write_file("/tmp/pi_test_themes_dir/light.json", "{}", 2);
+    fs_write_file("/tmp/rig_test_themes_dir/dark.json", "{}", 2);
+    fs_write_file("/tmp/rig_test_themes_dir/light.json", "{}", 2);
 
     int count = 0;
     const char *paths[] = { dir };
@@ -100,12 +100,12 @@ TEST(themes_discover_basic) {
     ASSERT_NOT_NULL(found);
     for (int i = 0; i < count; i++) free(found[i]);
     free(found);
-    system("rm -rf /tmp/pi_test_themes_dir");
+    system("rm -rf /tmp/rig_test_themes_dir");
 }
 
 TEST(themes_discover_empty) {
     int count = 0;
-    const char *paths[] = { "/tmp/pi_nonexistent_themes" };
+    const char *paths[] = { "/tmp/rig_nonexistent_themes" };
     char **found = themes_discover(paths, 1, &count);
     ASSERT_EQ(count, 0);
     /* found may be NULL */

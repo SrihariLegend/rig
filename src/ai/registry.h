@@ -1,5 +1,5 @@
-#ifndef PI_AI_REGISTRY_H
-#define PI_AI_REGISTRY_H
+#ifndef RIG_AI_REGISTRY_H
+#define RIG_AI_REGISTRY_H
 
 #include "types.h"
 

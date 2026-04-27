@@ -1,5 +1,5 @@
-#ifndef PI_AI_PROVIDER_ANTHROPIC_H
-#define PI_AI_PROVIDER_ANTHROPIC_H
+#ifndef RIG_AI_PROVIDER_ANTHROPIC_H
+#define RIG_AI_PROVIDER_ANTHROPIC_H
 
 #include "ai/registry.h"
 

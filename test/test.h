@@ -1,5 +1,5 @@
-#ifndef PI_TEST_H
-#define PI_TEST_H
+#ifndef RIG_TEST_H
+#define RIG_TEST_H
 
 #include <stdio.h>
 #include <string.h>

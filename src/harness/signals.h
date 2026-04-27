@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_SIGNALS_H
-#define PI_HARNESS_SIGNALS_H
+#ifndef RIG_HARNESS_SIGNALS_H
+#define RIG_HARNESS_SIGNALS_H
 
 #include <signal.h>
 #include <stdbool.h>

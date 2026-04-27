@@ -15,10 +15,10 @@ This document maps every architectural subsystem from the TypeScript original to
 1. [Original Architecture Summary](#1-original-architecture-summary)
 2. [Package Mapping](#2-package-mapping)
 3. [Core Types & Data Model](#3-core-types--data-model)
-4. [pi-ai: Unified LLM API](#4-pi-ai-unified-llm-api)
-5. [pi-agent: Agent Loop](#5-pi-agent-agent-loop)
-6. [pi-coding-agent: The Harness](#6-pi-coding-agent-the-harness)
-7. [pi-tui: Terminal UI](#7-pi-tui-terminal-ui)
+4. [rig-ai: Unified LLM API](#4-rig-ai-unified-llm-api)
+5. [rig-agent: Agent Loop](#5-rig-agent-agent-loop)
+6. [rig-harness: The Harness](#6-rig-harness-the-harness)
+7. [rig-tui: Terminal UI](#7-rig-tui-terminal-ui)
 8. [Extension, Plugin & Workflow System](#8-extension-plugin--workflow-system)
    - 8.1 Extension Loading: Three Tiers
    - 8.2 Core Workflow Engine
@@ -27,7 +27,7 @@ This document maps every architectural subsystem from the TypeScript original to
    - 8.5 Custom Modes
    - 8.6 Programmable Context Window
    - 8.7 Tool Composition
-   - 8.8 Full PiExtensionAPI
+   - 8.8 Full RigExtensionAPI
    - 8.9 Discovery & Loading
    - 8.10 Example Workflows
 9. [Build System & Dependencies](#9-build-system--dependencies)
@@ -43,13 +43,13 @@ This document maps every architectural subsystem from the TypeScript original to
 
 | TS Package | Lines | Purpose |
 |-----------|-------|---------|
-| `pi-ai` | 29K | Unified multi-provider LLM API (OpenAI, Anthropic, Google, Bedrock, Mistral, etc.) |
-| `pi-agent` | 2K | Agent loop: stream → tool calls → execute → loop |
-| `pi-coding-agent` | 45K | Full CLI: sessions, tools, modes, extensions, settings, bash executor |
-| `pi-tui` | 11K | Terminal UI: differential rendering, widgets, overlays, keyboard/mouse |
-| `pi-web-ui` | — | Web components (out of scope for C rewrite) |
-| `pi-mom` | — | Slack bot (out of scope) |
-| `pi-pods` | — | GPU pod management (out of scope) |
+| `rig-ai` | 29K | Unified multi-provider LLM API (OpenAI, Anthropic, Google, Bedrock, Mistral, etc.) |
+| `rig-agent` | 2K | Agent loop: stream → tool calls → execute → loop |
+| `rig-harness` | 45K | Full CLI: sessions, tools, modes, extensions, settings, bash executor |
+| `rig-tui` | 11K | Terminal UI: differential rendering, widgets, overlays, keyboard/mouse |
+| `rig-web-ui` | — | Web components (out of scope for C rewrite) |
+| `rig-mom` | — | Slack bot (out of scope) |
+| `rig-pods` | — | GPU pod management (out of scope) |
 
 ### What Makes Pi Special
 
@@ -71,7 +71,7 @@ This document maps every architectural subsystem from the TypeScript original to
 ### C Equivalent Structure
 
 ```
-pi-c/
+rig/
 ├── DESIGN.md              # This file
 ├── Makefile               # Build system (or CMake)
 ├── deps/                  # Vendored dependencies
@@ -83,7 +83,7 @@ pi-c/
 │   ├── lua/               # Lua 5.4 (scripted extensions)
 │   └── libyaml/           # YAML parsing (declarative workflows)
 ├── src/
-│   ├── ai/                # ≡ pi-ai: LLM provider abstraction
+│   ├── ai/                # ≡ rig-ai: LLM provider abstraction
 │   │   ├── types.h        # Messages, tools, models, content types
 │   │   ├── types.c
 │   │   ├── stream.h       # Event stream, SSE parsing
@@ -104,13 +104,13 @@ pi-c/
 │   │   │   ├── bedrock.c
 │   │   │   └── mistral.c
 │   │   └── transform.c    # Cross-provider message normalization
-│   ├── agent/             # ≡ pi-agent: agent loop
+│   ├── agent/             # ≡ rig-agent: agent loop
 │   │   ├── agent.h
 │   │   ├── agent.c        # Agent state, prompt/continue/abort
 │   │   ├── loop.h
 │   │   ├── loop.c         # Core loop: stream → tools → iterate
 │   │   └── proxy.c        # Proxy streaming (partial reconstruction)
-│   ├── harness/           # ≡ pi-coding-agent: the coding agent
+│   ├── harness/           # ≡ rig-harness: the coding agent
 │   │   ├── session.h      # Session management, JSONL persistence
 │   │   ├── session.c
 │   │   ├── settings.h     # 3-layer settings (global/project/CLI)
@@ -122,7 +122,7 @@ pi-c/
 │   │   │   ├── loader.c
 │   │   │   ├── runner.h   # Event dispatch, hook chains
 │   │   │   ├── runner.c
-│   │   │   ├── types.h    # Extension API (PiExtensionAPI)
+│   │   │   ├── types.h    # Extension API (RigExtensionAPI)
 │   │   │   ├── lua_bindings.h  # Lua ↔ Pi API bridge
 │   │   │   ├── lua_bindings.c
 │   │   │   ├── bus.h      # Event bus (pub/sub/request-reply)
@@ -158,12 +158,12 @@ pi-c/
 │   │   ├── compaction.c   # Context compaction
 │   │   ├── system_prompt.c# System prompt builder
 │   │   ├── auth.c         # API key & OAuth credential storage
-│   │   ├── config.c       # Path resolution (~/.pi/agent/*, .pi/*)
+│   │   ├── config.c       # Path resolution (~/.rig/agent/*, .rig/*)
 │   │   └── modes/
 │   │       ├── interactive.c  # Full TUI mode
 │   │       ├── print.c       # Single-shot print/JSON mode
 │   │       └── rpc.c         # JSONL stdio RPC mode
-│   ├── tui/               # ≡ pi-tui: terminal UI
+│   ├── tui/               # ≡ rig-tui: terminal UI
 │   │   ├── tui.h          # Differential rendering engine
 │   │   ├── tui.c
 │   │   ├── terminal.h     # Raw mode, escape sequences
@@ -201,7 +201,7 @@ pi-c/
 │   │   └── log.h          # Logging
 │   └── main.c             # Entry point, CLI arg parsing
 ├── include/               # Public headers (for SDK/embedding)
-│   └── pi.h               # Single-header SDK API
+│   └── rig.h               # Single-header SDK API
 └── test/
     ├── test_ai.c
     ├── test_agent.c
@@ -427,7 +427,7 @@ typedef struct {
 
 ---
 
-## 4. pi-ai: Unified LLM API
+## 4. rig-ai: Unified LLM API
 
 ### Architecture
 
@@ -572,7 +572,7 @@ TypeBox schemas in TS → JSON Schema in C. Validate tool call arguments against
 
 ---
 
-## 5. pi-agent: Agent Loop
+## 5. rig-agent: Agent Loop
 
 ### Core Loop
 
@@ -598,7 +598,7 @@ typedef struct {
     Model *model;
     int (*convert_to_llm)(AgentMessage *msgs, int count, Message **out, int *out_count);
     int (*transform_context)(AgentMessage *msgs, int count, AgentMessage **out, int *out_count);
-    int (*get_api_key)(const char *provider, char **key);
+    int (*get_arig_key)(const char *provider, char **key);
     int (*get_steering_messages)(AgentMessage **out, int *out_count);
     int (*get_follow_up_messages)(AgentMessage **out, int *out_count);
     int (*before_tool_call)(/* context */, bool *block, char **reason);
@@ -713,7 +713,7 @@ For server-proxied LLM calls:
 
 ---
 
-## 6. pi-coding-agent: The Harness
+## 6. rig-harness: The Harness
 
 ### Session Management (session.c)
 
@@ -741,7 +741,7 @@ typedef struct {
 
 typedef struct {
     char *session_id;
-    char *file_path;            // ~/.pi/agent/sessions/<id>.jsonl
+    char *file_path;            // ~/.rig/agent/sessions/<id>.jsonl
     SessionEntry *entries;
     int entry_count;
     char *leaf_id;              // current position in tree
@@ -872,8 +872,8 @@ typedef struct {
 
 // Three-layer manager
 typedef struct {
-    Settings global;                // ~/.pi/agent/settings.json
-    Settings project;               // .pi/settings.json
+    Settings global;                // ~/.rig/agent/settings.json
+    Settings project;               // .rig/settings.json
     Settings cli;                   // command-line overrides
     Settings merged;                // computed deep merge
     char *global_path;
@@ -902,7 +902,7 @@ typedef struct {
 
 Model *registry_resolve_model(ModelRegistry *r, const char *pattern);
 Model *registry_get_models(ModelRegistry *r, const char *provider, int *count);
-int    registry_get_api_key(ModelRegistry *r, const char *provider, char **key);
+int    registry_get_arig_key(ModelRegistry *r, const char *provider, char **key);
 ```
 
 ### Built-in Tools
@@ -960,7 +960,7 @@ typedef struct {
     bool disable_model_invocation;
 } Skill;
 
-// Discovery: walk ~/.pi/agent/skills/, .pi/skills/, .agents/skills/
+// Discovery: walk ~/.rig/agent/skills/, .rig/skills/, .agents/skills/
 // Parse SKILL.md frontmatter
 // Validate: name 1-64 chars, lowercase a-z/0-9/hyphens
 // Format as XML for system prompt
@@ -1082,7 +1082,7 @@ typedef struct {
 // /settings, /model, /scoped-models, /export, /import, /share, /copy,
 // /name, /session, /changelog, /hotkeys, /fork, /clone, /tree,
 // /login, /logout, /new, /compact, /resume, /reload, /quit
-// Extensions add more via pi->register_command()
+// Extensions add more via rig->register_command()
 
 SlashCommand *slash_commands_builtin(int *count);
 int slash_command_dispatch(const char *input, void *session_ctx);
@@ -1192,11 +1192,11 @@ Assemble from:
 typedef struct {
     int (*login)(void *callbacks_ctx);
     int (*refresh_token)(const char *credentials, char **new_token);
-    int (*get_api_key)(const char *credentials, char **api_key);
+    int (*get_arig_key)(const char *credentials, char **arig_key);
     int (*modify_models)(Model *models, int count, Model **out, int *out_count);  // optional
 } OAuthConfig;
 
-// Full provider registration (used by register_provider in PiExtensionAPI)
+// Full provider registration (used by register_provider in RigExtensionAPI)
 typedef struct {
     char *base_url;
     char *api;                  // "anthropic-messages", "openai-completions", etc.
@@ -1214,21 +1214,21 @@ typedef struct {
 ```c
 typedef struct {
     char *provider;
-    enum { AUTH_API_KEY, AUTH_OAUTH } type;
+    enum { AUTH_ARIG_KEY, AUTH_OAUTH } type;
     char *value;                // key or token
     int64_t expires_at;         // for OAuth
     char *refresh_token;
 } AuthEntry;
 
-// Storage: ~/.pi/agent/auth.json
-// Env var fallback: ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+// Storage: ~/.rig/agent/auth.json
+// Env var fallback: ANTHROPIC_ARIG_KEY, OPENAI_ARIG_KEY, etc.
 // Command execution: "!command" syntax
 ```
 
 ### Modes
 
 #### Interactive Mode (modes/interactive.c)
-- Full TUI via pi-tui library
+- Full TUI via rig-tui library
 - Multi-line editor, markdown rendering
 - Real-time streaming display
 - Model selector overlay
@@ -1236,7 +1236,7 @@ typedef struct {
 - Keybindings (71 in original)
 
 #### Print Mode (modes/print.c)
-- `pi -p "prompt"` → stdout
+- `rig -p "prompt"` → stdout
 - Text output (final response) or JSON (event stream)
 - For scripting, CI/CD, piping
 
@@ -1263,7 +1263,7 @@ Use `getopt_long()` or hand-rolled parser.
 
 ---
 
-## 7. pi-tui: Terminal UI
+## 7. rig-tui: Terminal UI
 
 ### Differential Rendering Engine (tui.c)
 
@@ -1395,17 +1395,17 @@ Pi-C goes far beyond the original Pi's hook-based extensions. The goal: **any wo
 #### Tier 1: Shared Libraries (.so/.dylib/.dll) — Native Plugins
 ```c
 // my_extension.c → my_extension.so
-#include <pi.h>
+#include <rig.h>
 
-PI_EXPORT void pi_extension_init(PiExtensionAPI *pi) {
-    pi->on(pi, "session_start", my_session_handler, my_ctx);
-    pi->register_tool(pi, &my_tool);
-    pi->register_command(pi, "my-cmd", my_cmd_handler, my_ctx);
-    pi->register_workflow(pi, &my_workflow);
+RIG_EXPORT void rig_extension_init(RigExtensionAPI *rig) {
+    rig->on(rig, "session_start", my_session_handler, my_ctx);
+    rig->register_tool(rig, &my_tool);
+    rig->register_command(rig, "my-cmd", my_cmd_handler, my_ctx);
+    rig->register_workflow(rig, &my_workflow);
 }
 
-// ABI version check — pi refuses to load mismatched plugins
-PI_EXPORT int pi_abi_version(void) { return PI_ABI_VERSION; }
+// ABI version check — rig refuses to load mismatched plugins
+RIG_EXPORT int rig_abi_version(void) { return RIG_ABI_VERSION; }
 ```
 
 - `dlopen()`/`dlsym()` loading
@@ -1416,14 +1416,14 @@ PI_EXPORT int pi_abi_version(void) { return PI_ABI_VERSION; }
 #### Tier 2: Lua Scripts — Scripted Plugins
 ```lua
 -- my_extension.lua
-function init(pi)
-    pi:on("tool_call", function(event, ctx)
+function init(rig)
+    rig:on("tool_call", function(event, ctx)
         if event.tool_name == "bash" and event.input.command:match("rm%-rf") then
             return { block = true, reason = "rm -rf blocked by policy" }
         end
     end)
 
-    pi:register_command("deploy", function(args, ctx)
+    rig:register_command("deploy", function(args, ctx)
         ctx:send_user_message("Run deployment checklist for " .. args[1])
     end)
 end
@@ -1445,7 +1445,7 @@ end
 
 #### Tier 3: Declarative YAML/TOML Workflows — Zero-Code
 ```yaml
-# .pi/workflows/code-review.yaml
+# .rig/workflows/code-review.yaml
 name: code-review
 description: "Multi-pass code review workflow"
 trigger: /review
@@ -1589,7 +1589,7 @@ struct WorkflowContext {
     cJSON *variables;           // step outputs + user-provided vars
     cJSON *metadata;            // timing, status per step
     AgentState *agent;          // access to agent for STEP_PROMPT
-    PiExtensionAPI *pi;         // access to pi APIs
+    RigExtensionAPI *rig;         // access to rig APIs
     void (*on_step_complete)(WorkflowContext *ctx, WorkflowStep *step, cJSON *result);
     void (*on_gate_request)(WorkflowContext *ctx, WorkflowStep *step, const char *message);
     bool aborted;
@@ -1723,7 +1723,7 @@ int workflow_graph_execute(WorkflowGraph *g, WorkflowContext *ctx);
 Pi ships no built-in sub-agents. But the workflow engine makes them trivial:
 
 ```yaml
-# .pi/workflows/architect.yaml
+# .rig/workflows/architect.yaml
 name: architect
 description: "Multi-agent architecture review"
 steps:
@@ -1860,7 +1860,7 @@ typedef struct {
 
 // Extensions register custom gate handlers
 typedef int (*GateHandler)(Gate *gate, WorkflowContext *ctx);
-void pi_register_gate(PiExtensionAPI *pi, const char *name, GateHandler handler);
+void rig_register_gate(RigExtensionAPI *rig, const char *name, GateHandler handler);
 ```
 
 #### Loops & Iteration
@@ -1940,7 +1940,7 @@ Checkpoint contains:
 - Current position in graph
 - Pending parallel jobs
 
-Stored as JSON in `~/.pi/agent/workflows/checkpoints/<id>.json`.
+Stored as JSON in `~/.rig/agent/workflows/checkpoints/<id>.json`.
 
 #### Workflow Composition
 
@@ -1978,16 +1978,16 @@ typedef struct {
 } BusEvent;
 
 // API
-void pi_bus_publish(PiExtensionAPI *pi, const char *topic, cJSON *data);
+void rig_bus_publish(RigExtensionAPI *rig, const char *topic, cJSON *data);
 
 // Subscribe with glob pattern matching on topic
-void pi_bus_subscribe(PiExtensionAPI *pi, const char *pattern,
+void rig_bus_subscribe(RigExtensionAPI *rig, const char *pattern,
                       void (*handler)(BusEvent *event, void *ctx), void *ctx);
 // e.g., "workflow.*", "deploy.*", "*"
 
 // Request/reply pattern
-cJSON *pi_bus_request(PiExtensionAPI *pi, const char *topic, cJSON *data, int timeout_ms);
-void pi_bus_reply_handler(PiExtensionAPI *pi, const char *topic,
+cJSON *rig_bus_request(RigExtensionAPI *rig, const char *topic, cJSON *data, int timeout_ms);
+void rig_bus_reply_handler(RigExtensionAPI *rig, const char *topic,
                           cJSON *(*handler)(cJSON *request, void *ctx), void *ctx);
 ```
 
@@ -2060,12 +2060,12 @@ Extensions can register entirely new modes beyond interactive/print/RPC:
 typedef struct {
     char *name;                 // e.g., "web", "daemon", "mcp"
     char *description;
-    int (*start)(AgentState *state, PiExtensionAPI *pi, cJSON *config);
+    int (*start)(AgentState *state, RigExtensionAPI *rig, cJSON *config);
     int (*handle_input)(const char *input, void *ctx);
     void (*stop)(void *ctx);
 } CustomMode;
 
-void pi_register_mode(PiExtensionAPI *pi, CustomMode *mode);
+void rig_register_mode(RigExtensionAPI *rig, CustomMode *mode);
 ```
 
 Use cases:
@@ -2090,7 +2090,7 @@ typedef struct {
     int priority;
 } ContextProvider;
 
-void pi_register_context_provider(PiExtensionAPI *pi, ContextProvider *provider);
+void rig_register_context_provider(RigExtensionAPI *rig, ContextProvider *provider);
 ```
 
 Examples:
@@ -2119,128 +2119,128 @@ typedef struct {
 // Example: "edit_and_verify" = edit file, then run tests, rollback if fail
 ```
 
-### 8.8 Full PiExtensionAPI
+### 8.8 Full RigExtensionAPI
 
 Complete API surface available to extensions:
 
 ```c
-typedef struct PiExtensionAPI {
+typedef struct RigExtensionAPI {
     // === Identity ===
     int abi_version;
-    char *pi_version;
+    char *rig_version;
 
     // === Lifecycle Hooks (30+ events) ===
-    void (*on)(struct PiExtensionAPI *api, const char *event,
+    void (*on)(struct RigExtensionAPI *api, const char *event,
                bool (*handler)(const char *event, cJSON *data, cJSON **result, void *ctx),
                void *ctx);
-    void (*on_priority)(struct PiExtensionAPI *api, const char *event, int priority,
+    void (*on_priority)(struct RigExtensionAPI *api, const char *event, int priority,
                         bool (*handler)(const char *event, cJSON *data, cJSON **result, void *ctx),
                         void *ctx);
 
     // === Tool Registration ===
-    void (*register_tool)(struct PiExtensionAPI *api, const Tool *tool);
-    void (*unregister_tool)(struct PiExtensionAPI *api, const char *name);
-    Tool *(*get_tool)(struct PiExtensionAPI *api, const char *name);
-    Tool **(*list_tools)(struct PiExtensionAPI *api, int *count);
+    void (*register_tool)(struct RigExtensionAPI *api, const Tool *tool);
+    void (*unregister_tool)(struct RigExtensionAPI *api, const char *name);
+    Tool *(*get_tool)(struct RigExtensionAPI *api, const char *name);
+    Tool **(*list_tools)(struct RigExtensionAPI *api, int *count);
 
     // === Command Registration ===
-    void (*register_command)(struct PiExtensionAPI *api, const char *name,
+    void (*register_command)(struct RigExtensionAPI *api, const char *name,
                             int (*handler)(const char **args, int argc, void *ctx), void *ctx);
 
     // === Provider Registration (with OAuth support) ===
-    void (*register_provider)(struct PiExtensionAPI *api, const char *name,
+    void (*register_provider)(struct RigExtensionAPI *api, const char *name,
                               const ProviderRegistration *config);
-    void (*unregister_provider)(struct PiExtensionAPI *api, const char *name);
+    void (*unregister_provider)(struct RigExtensionAPI *api, const char *name);
 
     // === Workflow Registration ===
-    void (*register_workflow)(struct PiExtensionAPI *api, Workflow *wf);
-    void (*register_gate)(struct PiExtensionAPI *api, const char *name, GateHandler handler);
-    int  (*execute_workflow)(struct PiExtensionAPI *api, const char *name,
+    void (*register_workflow)(struct RigExtensionAPI *api, Workflow *wf);
+    void (*register_gate)(struct RigExtensionAPI *api, const char *name, GateHandler handler);
+    int  (*execute_workflow)(struct RigExtensionAPI *api, const char *name,
                             const char **args, int argc);
 
     // === Mode Registration ===
-    void (*register_mode)(struct PiExtensionAPI *api, CustomMode *mode);
+    void (*register_mode)(struct RigExtensionAPI *api, CustomMode *mode);
 
     // === Context Providers ===
-    void (*register_context_provider)(struct PiExtensionAPI *api, ContextProvider *provider);
+    void (*register_context_provider)(struct RigExtensionAPI *api, ContextProvider *provider);
 
     // === Event Bus ===
-    void (*bus_publish)(struct PiExtensionAPI *api, const char *topic, cJSON *data);
-    void (*bus_subscribe)(struct PiExtensionAPI *api, const char *pattern,
+    void (*bus_publish)(struct RigExtensionAPI *api, const char *topic, cJSON *data);
+    void (*bus_subscribe)(struct RigExtensionAPI *api, const char *pattern,
                           void (*handler)(BusEvent *event, void *ctx), void *ctx);
-    cJSON *(*bus_request)(struct PiExtensionAPI *api, const char *topic, cJSON *data, int timeout_ms);
+    cJSON *(*bus_request)(struct RigExtensionAPI *api, const char *topic, cJSON *data, int timeout_ms);
 
     // === Agent Control ===
-    void (*send_message)(struct PiExtensionAPI *api, AgentMessage *msg);
-    void (*send_user_message)(struct PiExtensionAPI *api, const char *text,
+    void (*send_message)(struct RigExtensionAPI *api, AgentMessage *msg);
+    void (*send_user_message)(struct RigExtensionAPI *api, const char *text,
                               const char *deliver_as);  // "prompt" | "steer" | "followUp"
-    int  (*spawn_session)(struct PiExtensionAPI *api, SpawnSessionConfig *config,
+    int  (*spawn_session)(struct RigExtensionAPI *api, SpawnSessionConfig *config,
                           char **output, cJSON **structured);
-    void (*abort_session)(struct PiExtensionAPI *api);
+    void (*abort_session)(struct RigExtensionAPI *api);
 
     // === Session State ===
-    void (*append_entry)(struct PiExtensionAPI *api, const char *type, cJSON *data);
-    cJSON *(*get_entry)(struct PiExtensionAPI *api, const char *type);
-    void (*set_session_name)(struct PiExtensionAPI *api, const char *name);
-    void (*set_label)(struct PiExtensionAPI *api, const char *entry_id, const char *label);
+    void (*append_entry)(struct RigExtensionAPI *api, const char *type, cJSON *data);
+    cJSON *(*get_entry)(struct RigExtensionAPI *api, const char *type);
+    void (*set_session_name)(struct RigExtensionAPI *api, const char *name);
+    void (*set_label)(struct RigExtensionAPI *api, const char *entry_id, const char *label);
 
     // === Settings ===
-    cJSON *(*get_setting)(struct PiExtensionAPI *api, const char *key);
-    void (*set_setting)(struct PiExtensionAPI *api, const char *key, cJSON *value);
+    cJSON *(*get_setting)(struct RigExtensionAPI *api, const char *key);
+    void (*set_setting)(struct RigExtensionAPI *api, const char *key, cJSON *value);
 
     // === Model ===
-    Model *(*get_current_model)(struct PiExtensionAPI *api);
-    void (*set_model)(struct PiExtensionAPI *api, const char *pattern);
-    Model **(*list_models)(struct PiExtensionAPI *api, int *count);
+    Model *(*get_current_model)(struct RigExtensionAPI *api);
+    void (*set_model)(struct RigExtensionAPI *api, const char *pattern);
+    Model **(*list_models)(struct RigExtensionAPI *api, int *count);
 
     // === UI (interactive mode only, NULL in other modes) ===
     struct {
-        void (*set_widget)(struct PiExtensionAPI *api, const char *key,
+        void (*set_widget)(struct RigExtensionAPI *api, const char *key,
                           char **lines, int line_count, const char *placement);
-        void (*set_status)(struct PiExtensionAPI *api, const char *key, const char *text);
-        void (*set_footer)(struct PiExtensionAPI *api,
+        void (*set_status)(struct RigExtensionAPI *api, const char *key, const char *text);
+        void (*set_footer)(struct RigExtensionAPI *api,
                           Component *(*render)(void *tui, void *theme, cJSON *data));
-        void (*set_header)(struct PiExtensionAPI *api,
+        void (*set_header)(struct RigExtensionAPI *api,
                           Component *(*render)(void *tui, void *theme));
-        void (*notify)(struct PiExtensionAPI *api, const char *message, const char *level);
+        void (*notify)(struct RigExtensionAPI *api, const char *message, const char *level);
     } *ui;
 
     // === Tools (dynamic management) ===
-    Tool **(*get_active_tools)(struct PiExtensionAPI *api, int *count);
-    void (*set_active_tools)(struct PiExtensionAPI *api, const char **names, int count);
+    Tool **(*get_active_tools)(struct RigExtensionAPI *api, int *count);
+    void (*set_active_tools)(struct RigExtensionAPI *api, const char **names, int count);
 
     // === Thinking ===
-    int (*get_thinking_level)(struct PiExtensionAPI *api);
-    void (*set_thinking_level)(struct PiExtensionAPI *api, int level);
+    int (*get_thinking_level)(struct RigExtensionAPI *api);
+    void (*set_thinking_level)(struct RigExtensionAPI *api, int level);
 
     // === Shell ===
-    int (*exec)(struct PiExtensionAPI *api, const char *command, char **output,
+    int (*exec)(struct RigExtensionAPI *api, const char *command, char **output,
                 int *exit_code, int timeout_ms);
 
     // === Commands (introspection) ===
-    char **(*get_commands)(struct PiExtensionAPI *api, int *count);
+    char **(*get_commands)(struct RigExtensionAPI *api, int *count);
 
     // === Shortcuts (interactive mode) ===
-    void (*register_shortcut)(struct PiExtensionAPI *api, const char *key_id,
+    void (*register_shortcut)(struct RigExtensionAPI *api, const char *key_id,
                               const char *description,
                               void (*handler)(void *ctx), void *ctx);
 
     // === Message rendering ===
-    void (*register_message_renderer)(struct PiExtensionAPI *api, const char *message_type,
+    void (*register_message_renderer)(struct RigExtensionAPI *api, const char *message_type,
                                       Component *(*render)(cJSON *data, void *theme));
 
     // === Utilities ===
-    void (*log)(struct PiExtensionAPI *api, const char *level, const char *fmt, ...);
-    char *(*resolve_path)(struct PiExtensionAPI *api, const char *relative);
-    cJSON *(*read_json_file)(struct PiExtensionAPI *api, const char *path);
-    int (*write_json_file)(struct PiExtensionAPI *api, const char *path, cJSON *data);
-    char *(*get_session_name)(struct PiExtensionAPI *api);
+    void (*log)(struct RigExtensionAPI *api, const char *level, const char *fmt, ...);
+    char *(*resolve_path)(struct RigExtensionAPI *api, const char *relative);
+    cJSON *(*read_json_file)(struct RigExtensionAPI *api, const char *path);
+    int (*write_json_file)(struct RigExtensionAPI *api, const char *path, cJSON *data);
+    char *(*get_session_name)(struct RigExtensionAPI *api);
 
     // === Extension state (persisted across sessions) ===
-    cJSON *(*state_get)(struct PiExtensionAPI *api, const char *key);
-    void (*state_set)(struct PiExtensionAPI *api, const char *key, cJSON *value);
+    cJSON *(*state_get)(struct RigExtensionAPI *api, const char *key);
+    void (*state_set)(struct RigExtensionAPI *api, const char *key, cJSON *value);
 
-} PiExtensionAPI;
+} RigExtensionAPI;
 ```
 
 ### 8.9 Discovery & Loading
@@ -2248,9 +2248,9 @@ typedef struct PiExtensionAPI {
 ```
 Discovery order (highest precedence first):
 1. CLI: --extension path.so, --extension path.lua, --workflow path.yaml
-2. Project: .pi/extensions/*.{so,lua}, .pi/workflows/*.yaml
-3. Global: ~/.pi/agent/extensions/*.{so,lua}, ~/.pi/agent/workflows/*.yaml
-4. Packages: pi.extensions / pi.workflows in package.json
+2. Project: .rig/extensions/*.{so,lua}, .rig/workflows/*.yaml
+3. Global: ~/.rig/agent/extensions/*.{so,lua}, ~/.rig/agent/workflows/*.yaml
+4. Packages: rig.extensions / rig.workflows in package.json
 5. Settings: extensions/workflows arrays in settings.json
 ```
 
@@ -2260,7 +2260,7 @@ Extensions declare dependencies via a companion manifest or export:
 
 ```c
 // .so extensions: export a metadata function
-PI_EXPORT const char **pi_extension_depends(int *count) {
+RIG_EXPORT const char **rig_extension_depends(int *count) {
     static const char *deps[] = { "auth-provider", "slack-notifier" };
     *count = 2;
     return deps;
@@ -2295,7 +2295,7 @@ Resolution:
 3. Build dependency graph, detect cycles
 4. Topological sort
 5. ABI version check for .so files
-6. Load in dependency order: call `pi_extension_init()` / `init()` for each
+6. Load in dependency order: call `rig_extension_init()` / `init()` for each
 7. Parse and validate YAML/JSON workflows
 8. Register all with runner
 9. Emit `resources_discover` for dynamic additions
@@ -2433,9 +2433,9 @@ steps:
 
 #### Auto-Triage Incoming Issues
 ```lua
--- .pi/extensions/auto-triage.lua
-function init(pi)
-    pi:register_command("triage", function(args, ctx)
+-- .rig/extensions/auto-triage.lua
+function init(rig)
+    rig:register_command("triage", function(args, ctx)
         local issues = ctx:bash("gh issue list --state open --json number,title,body --limit 20")
         local parsed = json.decode(issues)
 
@@ -2449,7 +2449,7 @@ function init(pi)
                 ),
                 tools = {"read", "grep", "find"},
                 on_complete = function(output)
-                    pi:bus_publish("triage.complete", {
+                    rig:bus_publish("triage.complete", {
                         issue = issue.number,
                         triage = output
                     })
@@ -2555,7 +2555,7 @@ If pivoting:
 - [ ] HTTP + SSE parsing (libcurl wrapper)
 - [ ] Basic tests
 
-### Phase 1: pi-ai Core (Week 3-4)
+### Phase 1: rig-ai Core (Week 3-4)
 - [ ] Core types (Message, ContentBlock, Tool, Model)
 - [ ] Event stream (callback-based)
 - [ ] Provider registry
@@ -2565,7 +2565,7 @@ If pivoting:
 - [ ] Model database (static or JSON-loaded)
 - [ ] Test: stream a response from Anthropic API
 
-### Phase 2: pi-agent Loop (Week 5)
+### Phase 2: rig-agent Loop (Week 5)
 - [ ] Agent state management
 - [ ] Core loop algorithm
 - [ ] Tool execution (sequential + parallel)
@@ -2581,8 +2581,8 @@ If pivoting:
 - [ ] Model registry (built-in + custom)
 - [ ] System prompt builder
 - [ ] Built-in tools: bash, read, write, edit, grep, find, ls
-- [ ] Print mode: `pi -p "prompt"` works end-to-end
-- [ ] **MILESTONE: First working pi-c binary**
+- [ ] Print mode: `rig -p "prompt"` works end-to-end
+- [ ] **MILESTONE: First working rig binary**
 
 ### Phase 4: Session & Resources (Week 8-9)
 - [ ] Session management (JSONL tree)
@@ -2596,7 +2596,7 @@ If pivoting:
 
 ### Phase 5: Extension System — Three Tiers (Week 10-12)
 - [ ] Shared library loading (dlopen, ABI version check)
-- [ ] PiExtensionAPI — core surface (hooks, tools, commands, providers)
+- [ ] RigExtensionAPI — core surface (hooks, tools, commands, providers)
 - [ ] Hook chains with priority and short-circuit
 - [ ] Event bus (publish/subscribe/request-reply)
 - [ ] Lua 5.4 embedding + sandboxed Pi API bindings
@@ -2645,7 +2645,7 @@ If pivoting:
 - [ ] Mistral provider
 
 ### Phase 9: Polish (Week 21+)
-- [ ] SDK mode (embedding API via pi.h)
+- [ ] SDK mode (embedding API via rig.h)
 - [ ] Cross-platform testing (macOS, Linux, Windows)
 - [ ] Performance profiling
 - [ ] Documentation: extension authoring guide, workflow cookbook

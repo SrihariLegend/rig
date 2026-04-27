@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_PACKAGES_H
-#define PI_HARNESS_PACKAGES_H
+#ifndef RIG_HARNESS_PACKAGES_H
+#define RIG_HARNESS_PACKAGES_H
 
 #include <stdbool.h>
 #include "cjson/cJSON.h"
@@ -19,7 +19,7 @@ typedef struct {
 } Package;
 
 // Install a package. specifier: "npm:name", "git:url", "/path"
-// local: true = project-local (.pi/), false = global (~/.pi/agent/)
+// local: true = project-local (.rig/), false = global (~/.rig/agent/)
 int package_install(const char *specifier, bool local);
 
 // Remove a package

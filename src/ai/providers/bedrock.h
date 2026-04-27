@@ -1,5 +1,5 @@
-#ifndef PI_PROVIDER_BEDROCK_H
-#define PI_PROVIDER_BEDROCK_H
+#ifndef RIG_PROVIDER_BEDROCK_H
+#define RIG_PROVIDER_BEDROCK_H
 
 #include "ai/registry.h"
 

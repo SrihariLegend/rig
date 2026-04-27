@@ -1,5 +1,5 @@
-#ifndef PI_HARNESS_SESSION_H
-#define PI_HARNESS_SESSION_H
+#ifndef RIG_HARNESS_SESSION_H
+#define RIG_HARNESS_SESSION_H
 
 #include "ai/types.h"
 #include <stdbool.h>

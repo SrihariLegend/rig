@@ -1,5 +1,5 @@
-#ifndef PI_AGENT_H
-#define PI_AGENT_H
+#ifndef RIG_AGENT_H
+#define RIG_AGENT_H
 
 #include "ai/types.h"
 #include "ai/registry.h"

@@ -9,12 +9,12 @@
 #include <dlfcn.h>
 #include <dirent.h>
 
-PiExtensionAPI *extension_api_create(void) {
-    PiExtensionAPI *api = calloc(1, sizeof(PiExtensionAPI));
+RigExtensionAPI *extension_api_create(void) {
+    RigExtensionAPI *api = calloc(1, sizeof(RigExtensionAPI));
     if (!api) return NULL;
 
-    api->abi_version = PI_ABI_VERSION;
-    api->pi_version = strdup("0.1.0");
+    api->abi_version = RIG_ABI_VERSION;
+    api->rig_version = strdup("0.1.0");
     api->hooks = hook_chain_create();
     api->bus = event_bus_create();
 
@@ -36,10 +36,10 @@ PiExtensionAPI *extension_api_create(void) {
     return api;
 }
 
-void extension_api_free(PiExtensionAPI *api) {
+void extension_api_free(RigExtensionAPI *api) {
     if (!api) return;
 
-    free(api->pi_version);
+    free(api->rig_version);
     hook_chain_free(api->hooks);
     event_bus_free(api->bus);
 
@@ -71,7 +71,7 @@ void extension_api_free(PiExtensionAPI *api) {
     free(api);
 }
 
-int extension_api_register_tool(PiExtensionAPI *api, Tool *tool) {
+int extension_api_register_tool(RigExtensionAPI *api, Tool *tool) {
     if (!api || !tool) return -1;
 
     if (api->tool_count >= api->tool_capacity) {
@@ -86,7 +86,7 @@ int extension_api_register_tool(PiExtensionAPI *api, Tool *tool) {
     return 0;
 }
 
-int extension_api_unregister_tool(PiExtensionAPI *api, const char *name) {
+int extension_api_unregister_tool(RigExtensionAPI *api, const char *name) {
     if (!api || !name) return -1;
 
     for (int i = 0; i < api->tool_count; i++) {
@@ -102,7 +102,7 @@ int extension_api_unregister_tool(PiExtensionAPI *api, const char *name) {
     return -1;
 }
 
-Tool *extension_api_get_tool(PiExtensionAPI *api, const char *name) {
+Tool *extension_api_get_tool(RigExtensionAPI *api, const char *name) {
     if (!api || !name) return NULL;
 
     for (int i = 0; i < api->tool_count; i++) {
@@ -113,7 +113,7 @@ Tool *extension_api_get_tool(PiExtensionAPI *api, const char *name) {
     return NULL;
 }
 
-int extension_api_register_command(PiExtensionAPI *api, const char *name,
+int extension_api_register_command(RigExtensionAPI *api, const char *name,
                                     CommandHandler handler, void *ctx) {
     if (!api || !name || !handler) return -1;
 
@@ -133,11 +133,11 @@ int extension_api_register_command(PiExtensionAPI *api, const char *name,
     return 0;
 }
 
-typedef void (*ExtInitFn)(PiExtensionAPI *);
+typedef void (*ExtInitFn)(RigExtensionAPI *);
 typedef int (*AbiVersionFn)(void);
 typedef const char **(*DependsFn)(int *);
 
-int extension_load_shared(PiExtensionAPI *api, const char *path) {
+int extension_load_shared(RigExtensionAPI *api, const char *path) {
     if (!api || !path) return -1;
 
     void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
@@ -146,19 +146,19 @@ int extension_load_shared(PiExtensionAPI *api, const char *path) {
         return -1;
     }
 
-    AbiVersionFn abi_fn = (AbiVersionFn)dlsym(handle, "pi_abi_version");
+    AbiVersionFn abi_fn = (AbiVersionFn)dlsym(handle, "rig_abi_version");
     if (abi_fn) {
         int version = abi_fn();
-        if (version != PI_ABI_VERSION) {
-            LOG_ERROR("ABI mismatch: extension=%d, pi=%d", version, PI_ABI_VERSION);
+        if (version != RIG_ABI_VERSION) {
+            LOG_ERROR("ABI mismatch: extension=%d, rig=%d", version, RIG_ABI_VERSION);
             dlclose(handle);
             return -1;
         }
     }
 
-    ExtInitFn init_fn = (ExtInitFn)dlsym(handle, "pi_extension_init");
+    ExtInitFn init_fn = (ExtInitFn)dlsym(handle, "rig_extension_init");
     if (!init_fn) {
-        LOG_ERROR("No pi_extension_init in %s", path);
+        LOG_ERROR("No rig_extension_init in %s", path);
         dlclose(handle);
         return -1;
     }
@@ -174,7 +174,7 @@ int extension_load_shared(PiExtensionAPI *api, const char *path) {
     ext->path = strdup(path);
     ext->dl_handle = handle;
 
-    DependsFn deps_fn = (DependsFn)dlsym(handle, "pi_extension_depends");
+    DependsFn deps_fn = (DependsFn)dlsym(handle, "rig_extension_depends");
     if (deps_fn) {
         int dep_count;
         const char **deps = deps_fn(&dep_count);
@@ -206,7 +206,7 @@ int extension_load_shared(PiExtensionAPI *api, const char *path) {
     return 0;
 }
 
-int extension_load_lua(PiExtensionAPI *api, const char *path) {
+int extension_load_lua(RigExtensionAPI *api, const char *path) {
     if (!api || !path) return -1;
 
     LuaExtState *lua = lua_ext_create(api);
@@ -257,7 +257,7 @@ int extension_load_lua(PiExtensionAPI *api, const char *path) {
     return 0;
 }
 
-int extension_load_yaml_workflow(PiExtensionAPI *api, const char *path) {
+int extension_load_yaml_workflow(RigExtensionAPI *api, const char *path) {
     if (!api || !path) return -1;
 
     Extension *ext = calloc(1, sizeof(Extension));
@@ -285,7 +285,7 @@ int extension_load_yaml_workflow(PiExtensionAPI *api, const char *path) {
     return 0;
 }
 
-static void discover_dir(PiExtensionAPI *api, const char *dir, const char *subdir) {
+static void discover_dir(RigExtensionAPI *api, const char *dir, const char *subdir) {
     char path[1024];
     snprintf(path, sizeof(path), "%s/%s", dir, subdir);
 
@@ -315,7 +315,7 @@ static void discover_dir(PiExtensionAPI *api, const char *dir, const char *subdi
     closedir(d);
 }
 
-int extension_discover_and_load(PiExtensionAPI *api, const char *project_dir, const char *global_dir) {
+int extension_discover_and_load(RigExtensionAPI *api, const char *project_dir, const char *global_dir) {
     if (!api) return -1;
 
     if (global_dir) {
@@ -331,7 +331,7 @@ int extension_discover_and_load(PiExtensionAPI *api, const char *project_dir, co
     return 0;
 }
 
-int extension_state_save(PiExtensionAPI *api) {
+int extension_state_save(RigExtensionAPI *api) {
     if (!api || !api->state_path || !api->state) return -1;
 
     char *json_str = cJSON_Print(api->state);
@@ -342,7 +342,7 @@ int extension_state_save(PiExtensionAPI *api) {
     return result;
 }
 
-int extension_state_load(PiExtensionAPI *api) {
+int extension_state_load(RigExtensionAPI *api) {
     if (!api || !api->state_path) return -1;
 
     size_t len;

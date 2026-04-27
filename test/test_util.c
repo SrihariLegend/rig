@@ -705,7 +705,7 @@ TEST(json_deep_merge_both_null) {
 }
 
 TEST(json_read_write_file) {
-    const char *path = "/tmp/pi_test_json.json";
+    const char *path = "/tmp/rig_test_json.json";
     cJSON *data = cJSON_CreateObject();
     cJSON_AddStringToObject(data, "key", "value");
     ASSERT_EQ(json_write_file(path, data), 0);
@@ -719,7 +719,7 @@ TEST(json_read_write_file) {
 }
 
 TEST(json_read_file_missing) {
-    ASSERT_NULL(json_read_file("/tmp/nonexistent_pi_test.json"));
+    ASSERT_NULL(json_read_file("/tmp/nonexistent_rig_test.json"));
 }
 
 TEST(json_string_array_basic) {
@@ -824,7 +824,7 @@ TEST(http_response_free_null) {
 /* ========== FS ========== */
 
 TEST(fs_write_read) {
-    const char *path = "/tmp/pi_test_fs.txt";
+    const char *path = "/tmp/rig_test_fs.txt";
     ASSERT_EQ(fs_write_file(path, "hello", 5), 0);
     size_t len = 0;
     char *data = fs_read_file(path, &len);
@@ -836,7 +836,7 @@ TEST(fs_write_read) {
 }
 
 TEST(fs_append_file) {
-    const char *path = "/tmp/pi_test_fs_append.txt";
+    const char *path = "/tmp/rig_test_fs_append.txt";
     unlink(path);
     ASSERT_EQ(fs_write_file(path, "hello", 5), 0);
     ASSERT_EQ(fs_append_file(path, " world", 6), 0);
@@ -853,7 +853,7 @@ TEST(fs_exists_true) {
 }
 
 TEST(fs_exists_false) {
-    ASSERT_FALSE(fs_exists("/tmp/pi_nonexistent_file_abc"));
+    ASSERT_FALSE(fs_exists("/tmp/rig_nonexistent_file_abc"));
 }
 
 TEST(fs_is_dir_true) {
@@ -861,14 +861,14 @@ TEST(fs_is_dir_true) {
 }
 
 TEST(fs_is_dir_false) {
-    const char *path = "/tmp/pi_test_isdir.txt";
+    const char *path = "/tmp/rig_test_isdir.txt";
     fs_write_file(path, "x", 1);
     ASSERT_FALSE(fs_is_dir(path));
     unlink(path);
 }
 
 TEST(fs_is_file_true) {
-    const char *path = "/tmp/pi_test_isfile.txt";
+    const char *path = "/tmp/rig_test_isfile.txt";
     fs_write_file(path, "x", 1);
     ASSERT_TRUE(fs_is_file(path));
     unlink(path);
@@ -879,24 +879,24 @@ TEST(fs_is_file_false) {
 }
 
 TEST(fs_mkdir_p_basic) {
-    const char *path = "/tmp/pi_test_mkdir/a/b/c";
+    const char *path = "/tmp/rig_test_mkdir/a/b/c";
     ASSERT_EQ(fs_mkdir_p(path), 0);
     ASSERT_TRUE(fs_is_dir(path));
-    rmdir("/tmp/pi_test_mkdir/a/b/c");
-    rmdir("/tmp/pi_test_mkdir/a/b");
-    rmdir("/tmp/pi_test_mkdir/a");
-    rmdir("/tmp/pi_test_mkdir");
+    rmdir("/tmp/rig_test_mkdir/a/b/c");
+    rmdir("/tmp/rig_test_mkdir/a/b");
+    rmdir("/tmp/rig_test_mkdir/a");
+    rmdir("/tmp/rig_test_mkdir");
 }
 
 TEST(fs_mtime_exists) {
-    const char *path = "/tmp/pi_test_mtime.txt";
+    const char *path = "/tmp/rig_test_mtime.txt";
     fs_write_file(path, "x", 1);
     ASSERT_TRUE(fs_mtime(path) > 0);
     unlink(path);
 }
 
 TEST(fs_mtime_missing) {
-    ASSERT_EQ(fs_mtime("/tmp/pi_nonexistent_xyz"), -1);
+    ASSERT_EQ(fs_mtime("/tmp/rig_nonexistent_xyz"), -1);
 }
 
 TEST(fs_join_basic) {
@@ -948,7 +948,7 @@ TEST(fs_expand_home_null) {
 }
 
 TEST(fs_read_file_missing) {
-    ASSERT_NULL(fs_read_file("/tmp/pi_nonexistent.txt", NULL));
+    ASSERT_NULL(fs_read_file("/tmp/rig_nonexistent.txt", NULL));
 }
 
 /* ========== Process ========== */
@@ -1029,7 +1029,7 @@ TEST(process_run_cwd) {
 
 /* UNICODE: fs_write_file and fs_read_file with UTF-8 filename */
 TEST(fs_write_read_utf8_filename) {
-    const char *path = "/tmp/pi_test_\xE4\xB8\xAD\xE6\x96\x87.txt";
+    const char *path = "/tmp/rig_test_\xE4\xB8\xAD\xE6\x96\x87.txt";
     ASSERT_EQ(fs_write_file(path, "data", 4), 0);
     size_t len = 0;
     char *data = fs_read_file(path, &len);
@@ -1042,7 +1042,7 @@ TEST(fs_write_read_utf8_filename) {
 
 /* UNICODE: fs_write_file with UTF-8 content */
 TEST(fs_write_read_utf8_content) {
-    const char *path = "/tmp/pi_test_utf8_content.txt";
+    const char *path = "/tmp/rig_test_utf8_content.txt";
     const char *content = "\xE4\xB8\xAD\xE6\x96\x87\xF0\x9F\x98\x80";
     size_t content_len = strlen(content);
     ASSERT_EQ(fs_write_file(path, content, content_len), 0);

@@ -1,4 +1,4 @@
 #include "log.h"
 
-LogLevel pi_log_level = LOG_INFO;
-FILE *pi_log_file = NULL;
+LogLevel rig_log_level = LOG_INFO;
+FILE *rig_log_file = NULL;

@@ -42,7 +42,7 @@ char *package_install_dir(PackageSourceType type, bool local) {
     char buf[PATH_MAX];
 
     if (local) {
-        // Project-local: .pi/npm/ or .pi/git/
+        // Project-local: .rig/npm/ or .rig/git/
         char *root = config_find_project_root();
         if (type == PKG_NPM) {
             snprintf(buf, PATH_MAX, "%s/.rig/npm", root);

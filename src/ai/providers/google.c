@@ -64,10 +64,10 @@ static int google_stream(const Model *model, const Message *messages, int msg_co
     (void)options; (void)tools; (void)tool_count;
     if (!model || !cb) return -1;
 
-    const char *api_key = getenv("GOOGLE_API_KEY");
-    if (!api_key) api_key = getenv("GEMINI_API_KEY");
+    const char *api_key = getenv("GOOGLE_ARIG_KEY");
+    if (!api_key) api_key = getenv("GEMINI_ARIG_KEY");
     if (!api_key) {
-        LOG_ERROR("GOOGLE_API_KEY not set");
+        LOG_ERROR("GOOGLE_ARIG_KEY not set");
         return -1;
     }
 

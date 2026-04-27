@@ -76,7 +76,7 @@ TEST(workflow_parse_json_defaults) {
 
 TEST(workflow_parse_yaml_basic) {
     const char *yaml = "name: test-yaml\nsteps:\n  - name: s1\n    type: bash\n    config:\n      command: echo hi\n";
-    const char *path = "/tmp/pi_test_wf.yaml";
+    const char *path = "/tmp/rig_test_wf.yaml";
     fs_write_file(path, yaml, strlen(yaml));
     Workflow *wf = workflow_parse_yaml(path);
     ASSERT_NOT_NULL(wf);
@@ -92,7 +92,7 @@ TEST(workflow_parse_yaml_null) {
 }
 
 TEST(workflow_parse_yaml_missing) {
-    ASSERT_NULL(workflow_parse_yaml("/tmp/pi_nonexistent.yaml"));
+    ASSERT_NULL(workflow_parse_yaml("/tmp/rig_nonexistent.yaml"));
 }
 
 /* ========== Validation ========== */
@@ -314,7 +314,7 @@ TEST(workflow_checkpoint_resume) {
     ctx->step_statuses[0] = STEP_STATUS_SUCCESS;
     cJSON_AddStringToObject(ctx->variables, "r1", "done");
 
-    const char *cp_path = "/tmp/pi_test_checkpoint.json";
+    const char *cp_path = "/tmp/rig_test_checkpoint.json";
     ASSERT_EQ(workflow_checkpoint(ctx, cp_path), 0);
     ASSERT_TRUE(fs_exists(cp_path));
 
@@ -358,7 +358,7 @@ TEST(workflow_resolve_var_missing) {
 
 TEST(adv_yaml_invalid_syntax) {
     const char *yaml = "{{{{invalid yaml content[[[";
-    const char *path = "/tmp/pi_adv_yaml_invalid.yaml";
+    const char *path = "/tmp/rig_adv_yaml_invalid.yaml";
     fs_write_file(path, yaml, strlen(yaml));
     Workflow *wf = workflow_parse_yaml(path);
     /* Should return NULL or a partial parse, must not crash */
@@ -368,7 +368,7 @@ TEST(adv_yaml_invalid_syntax) {
 
 TEST(adv_yaml_no_name_field) {
     const char *yaml = "description: no name here\nsteps:\n  - name: s1\n    type: bash\n";
-    const char *path = "/tmp/pi_adv_yaml_noname.yaml";
+    const char *path = "/tmp/rig_adv_yaml_noname.yaml";
     fs_write_file(path, yaml, strlen(yaml));
     Workflow *wf = workflow_parse_yaml(path);
     /* wf should parse but validation should fail */
@@ -384,7 +384,7 @@ TEST(adv_yaml_no_name_field) {
 
 TEST(adv_yaml_empty_steps) {
     const char *yaml = "name: empty\nsteps: []\n";
-    const char *path = "/tmp/pi_adv_yaml_emptysteps.yaml";
+    const char *path = "/tmp/rig_adv_yaml_emptysteps.yaml";
     fs_write_file(path, yaml, strlen(yaml));
     Workflow *wf = workflow_parse_yaml(path);
     if (wf) {
@@ -399,7 +399,7 @@ TEST(adv_yaml_empty_steps) {
 
 TEST(adv_yaml_binary_data) {
     /* Write binary garbage as YAML */
-    const char *path = "/tmp/pi_adv_yaml_binary.yaml";
+    const char *path = "/tmp/rig_adv_yaml_binary.yaml";
     char bin[256];
     for (int i = 0; i < 256; i++) bin[i] = (char)i;
     fs_write_file(path, bin, 256);
@@ -411,7 +411,7 @@ TEST(adv_yaml_binary_data) {
 
 TEST(adv_yaml_extremely_large) {
     /* Write a 100KB YAML file */
-    const char *path = "/tmp/pi_adv_yaml_large.yaml";
+    const char *path = "/tmp/rig_adv_yaml_large.yaml";
     size_t total = 100 * 1024;
     char *buf = malloc(total + 1);
     int pos = snprintf(buf, total, "name: large\nsteps:\n");
