@@ -325,6 +325,30 @@ static void render_line_content(const LanternRenderer *r, const StoreLine *line,
         break;
     }
 
+    case LINE_TABLE_ROW: {
+        /* Header rows (heading_level=1) get bold */
+        if (line->heading_level) {
+            lantern_emit_fg(l, base_color, fg_buf, sizeof(fg_buf));
+            terminal_write_str(fg_buf);
+            terminal_write_str("\x1b[1m");
+        } else {
+            lantern_emit_fg(l, base_color, fg_buf, sizeof(fg_buf));
+            terminal_write_str(fg_buf);
+        }
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(reset_buf);
+        break;
+    }
+
+    case LINE_TABLE_SEPARATOR: {
+        RGB dim = rgb_lerp(*base_color, (RGB){40, 40, 40}, 0.5f);
+        lantern_emit_fg(l, &dim, fg_buf, sizeof(fg_buf));
+        terminal_write_str(fg_buf);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(reset_buf);
+        break;
+    }
+
     case LINE_SEPARATOR:
         break;
 
@@ -415,42 +439,52 @@ void lantern_renderer_render(LanternRenderer *r) {
         int avail_width = r->content_width - 4 - line_indent;
         if (avail_width < 10) avail_width = 10;
 
-        if (ref.wrap_offset == 0) {
+        if (ref.wrap_offset == 0 && line->wrap_count <= 1) {
             render_line_content(r, line, &base_color, distance_from_center, avail_width);
-        } else {
-            /* wrapped continuation — walk by visual width to find start byte */
+        } else if (line->raw_text) {
+            /* Word-wrap aware rendering for wrapped lines */
             char fg_buf[32];
             lantern_emit_fg(r->lantern, &base_color, fg_buf, sizeof(fg_buf));
             terminal_write_str(fg_buf);
-            if (line->raw_text) {
-                const char *p = line->raw_text;
-                int vis_col = 0;
-                int target_vis = ref.wrap_offset * avail_width;
-                /* Skip to the visual start position */
-                while (*p && vis_col < target_vis) {
-                    unsigned char c = (unsigned char)*p;
+
+            /* Walk through text finding word-wrap break points */
+            const char *text = line->raw_text;
+            int text_len = (int)strlen(text);
+            int row = 0;
+            int pos = 0;
+            while (pos < text_len && row <= ref.wrap_offset) {
+                int row_start = pos;
+                int row_end = pos;
+                int vis = 0;
+                int last_space = -1;
+                while (row_end < text_len && vis < avail_width) {
+                    if (text[row_end] == ' ') last_space = row_end;
+                    unsigned char c = (unsigned char)text[row_end];
                     int bytes = 1;
                     if (c >= 0xF0) bytes = 4;
                     else if (c >= 0xE0) bytes = 3;
                     else if (c >= 0xC0) bytes = 2;
-                    vis_col++;
-                    p += bytes;
+                    row_end += bytes;
+                    vis++;
                 }
-                /* Print up to avail_width visible chars */
-                int printed = 0;
-                const char *start = p;
-                while (*p && printed < avail_width) {
-                    unsigned char c = (unsigned char)*p;
-                    int bytes = 1;
-                    if (c >= 0xF0) bytes = 4;
-                    else if (c >= 0xE0) bytes = 3;
-                    else if (c >= 0xC0) bytes = 2;
-                    printed++;
-                    p += bytes;
+                /* Break at last space if we exceeded width */
+                if (row_end < text_len && last_space > row_start) {
+                    row_end = last_space + 1;
                 }
-                if (p > start) terminal_write(start, (int)(p - start));
+                if (row == ref.wrap_offset) {
+                    int chunk = row_end - row_start;
+                    /* Trim trailing space on wrapped lines */
+                    while (chunk > 0 && text[row_start + chunk - 1] == ' ') chunk--;
+                    if (chunk > 0) terminal_write(text + row_start, chunk);
+                }
+                pos = row_end;
+                /* Skip leading spaces on continuation */
+                while (pos < text_len && text[pos] == ' ') pos++;
+                row++;
             }
             terminal_write_str("\x1b[0m");
+        } else if (ref.wrap_offset == 0) {
+            render_line_content(r, line, &base_color, distance_from_center, avail_width);
         }
     }
 

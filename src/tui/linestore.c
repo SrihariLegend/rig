@@ -11,11 +11,35 @@
 #define MAX_WRAP 10000
 
 static int compute_wrap_count(const char *text, int content_width) {
-    if (!text || content_width <= 0) return 1;
-    int vis_width = unicode_display_width(text);
-    if (vis_width <= content_width) return 1;
-    if (vis_width > MAX_WRAP * content_width) vis_width = MAX_WRAP * content_width;
-    return (vis_width + content_width - 1) / content_width;
+    if (!text || !text[0] || content_width <= 0) return 1;
+    int text_len = (int)strlen(text);
+    int vis_total = unicode_display_width(text);
+    if (vis_total <= content_width) return 1;
+
+    int rows = 0;
+    int pos = 0;
+    while (pos < text_len && rows < MAX_WRAP) {
+        int vis = 0;
+        int last_space = -1;
+        int row_end = pos;
+        while (row_end < text_len && vis < content_width) {
+            if (text[row_end] == ' ') last_space = row_end;
+            unsigned char c = (unsigned char)text[row_end];
+            int bytes = 1;
+            if (c >= 0xF0) bytes = 4;
+            else if (c >= 0xE0) bytes = 3;
+            else if (c >= 0xC0) bytes = 2;
+            row_end += bytes;
+            vis++;
+        }
+        if (row_end < text_len && last_space > pos) {
+            row_end = last_space + 1;
+        }
+        rows++;
+        pos = row_end;
+        while (pos < text_len && text[pos] == ' ') pos++;
+    }
+    return rows > 0 ? rows : 1;
 }
 
 #define SPANS_GROW(spans, count, cap) do { \
@@ -154,6 +178,7 @@ void linestore_set_width(LineStore *ls, int content_width) {
 }
 
 void linestore_reflow(LineStore *ls) {
+    LOG_INFO("reflow: content_width=%d lines=%d", ls->content_width, ls->count);
     ls->total_screen_rows = 0;
     for (int i = 0; i < ls->count; i++) {
         StoreLine *line = &ls->lines[i];

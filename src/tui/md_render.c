@@ -33,6 +33,12 @@ typedef struct {
     int span_count;
     int span_cap;
 
+    int in_table;
+    int in_table_header;
+    int table_col_count;
+    int table_cell_idx;
+    char *table_cells[32];
+
     char code_lang[32];
 } MdState;
 
@@ -86,6 +92,70 @@ static void push_span(MdState *st, const char *text, int len, SpanFlags flags) {
         .len = len,
         .flags = flags,
     };
+}
+
+static void flush_table_row(MdState *st, bool is_header) {
+    buf_clear(st);
+    for (int i = 0; i < st->table_cell_idx && i < 32; i++) {
+        buf_append(st, "| ", 2);
+        if (st->table_cells[i]) {
+            buf_append(st, st->table_cells[i], (int)strlen(st->table_cells[i]));
+        }
+        buf_append(st, " ", 1);
+        free(st->table_cells[i]);
+        st->table_cells[i] = NULL;
+    }
+    buf_append(st, "|", 1);
+    st->table_cell_idx = 0;
+
+    /* Use linestore_alloc_line directly for table rows */
+    if (st->ls->count >= st->ls->capacity) {
+        int new_cap = st->ls->capacity * 2;
+        StoreLine *nl = realloc(st->ls->lines, (size_t)new_cap * sizeof(StoreLine));
+        if (!nl) { buf_clear(st); return; }
+        st->ls->lines = nl;
+        st->ls->capacity = new_cap;
+    }
+    StoreLine *line = &st->ls->lines[st->ls->count];
+    memset(line, 0, sizeof(StoreLine));
+    line->msg_index = st->ls->current_msg;
+    line->type = LINE_TABLE_ROW;
+    line->indent = 2;
+    line->raw_text = st->line_buf && st->line_len > 0 ? strdup(st->line_buf) : strdup("");
+    line->wrap_count = 1;
+    if (is_header) {
+        line->heading_level = 1;
+    }
+    st->ls->total_screen_rows++;
+    st->ls->count++;
+    buf_clear(st);
+}
+
+static void flush_table_separator(MdState *st) {
+    buf_clear(st);
+    for (int i = 0; i < st->table_col_count; i++) {
+        buf_append(st, "|", 1);
+        buf_append(st, "---", 3);
+    }
+    buf_append(st, "|", 1);
+
+    if (st->ls->count >= st->ls->capacity) {
+        int new_cap = st->ls->capacity * 2;
+        StoreLine *nl = realloc(st->ls->lines, (size_t)new_cap * sizeof(StoreLine));
+        if (!nl) { buf_clear(st); return; }
+        st->ls->lines = nl;
+        st->ls->capacity = new_cap;
+    }
+    StoreLine *line = &st->ls->lines[st->ls->count];
+    memset(line, 0, sizeof(StoreLine));
+    line->msg_index = st->ls->current_msg;
+    line->type = LINE_TABLE_SEPARATOR;
+    line->indent = 2;
+    line->raw_text = strdup(st->line_buf);
+    line->wrap_count = 1;
+    st->ls->total_screen_rows++;
+    st->ls->count++;
+    buf_clear(st);
 }
 
 static void flush_line(MdState *st, LineType type, int indent, int heading_level) {
@@ -182,6 +252,26 @@ static int md_enter_block(MD_BLOCKTYPE type, void *detail, void *userdata) {
     case MD_BLOCK_QUOTE:
         st->in_blockquote = 1;
         break;
+    case MD_BLOCK_TABLE: {
+        MD_BLOCK_TABLE_DETAIL *td = detail;
+        st->in_table = 1;
+        st->table_col_count = (int)td->col_count;
+        st->table_cell_idx = 0;
+        break;
+    }
+    case MD_BLOCK_THEAD:
+        st->in_table_header = 1;
+        break;
+    case MD_BLOCK_TBODY:
+        st->in_table_header = 0;
+        break;
+    case MD_BLOCK_TR:
+        st->table_cell_idx = 0;
+        break;
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        buf_clear(st);
+        break;
     case MD_BLOCK_P:
         buf_clear(st);
         break;
@@ -251,6 +341,29 @@ static int md_leave_block(MD_BLOCKTYPE type, void *detail, void *userdata) {
                 st->ls->count++;
             }
         }
+        break;
+    case MD_BLOCK_TABLE:
+        st->in_table = 0;
+        break;
+    case MD_BLOCK_THEAD:
+        flush_table_row(st, true);
+        flush_table_separator(st);
+        st->in_table_header = 0;
+        break;
+    case MD_BLOCK_TBODY:
+        break;
+    case MD_BLOCK_TR:
+        if (!st->in_table_header) {
+            flush_table_row(st, false);
+        }
+        break;
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        if (st->table_cell_idx < 32) {
+            st->table_cells[st->table_cell_idx] = st->line_len > 0 ? strdup(st->line_buf) : strdup("");
+            st->table_cell_idx++;
+        }
+        buf_clear(st);
         break;
     default:
         break;

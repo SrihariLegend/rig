@@ -19,6 +19,8 @@ typedef enum {
     LINE_ERROR,
     LINE_SYSTEM,
     LINE_SEPARATOR,
+    LINE_TABLE_ROW,
+    LINE_TABLE_SEPARATOR,
 } LineType;
 
 typedef enum {
