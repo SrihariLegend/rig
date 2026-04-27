@@ -99,11 +99,11 @@ void terminal_disable_bracketed_paste(void) {
 }
 
 void terminal_enable_mouse(void) {
-    write(STDOUT_FILENO, "\x1b[?1006h\x1b[?1003h", 16);
+    write(STDOUT_FILENO, "\x1b[?1006h\x1b[?1000h", 16);
 }
 
 void terminal_disable_mouse(void) {
-    write(STDOUT_FILENO, "\x1b[?1003l\x1b[?1006l", 16);
+    write(STDOUT_FILENO, "\x1b[?1000l\x1b[?1006l", 16);
 }
 
 void terminal_sync_begin(void) {
