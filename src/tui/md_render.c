@@ -39,6 +39,10 @@ typedef struct {
     int table_cell_idx;
     char *table_cells[32];
 
+    char **table_rows[64];
+    int table_row_count;
+    int table_header_rows;
+
     char code_lang[32];
 } MdState;
 
@@ -94,68 +98,98 @@ static void push_span(MdState *st, const char *text, int len, SpanFlags flags) {
     };
 }
 
-static void flush_table_row(MdState *st, bool is_header) {
-    buf_clear(st);
-    for (int i = 0; i < st->table_cell_idx && i < 32; i++) {
-        buf_append(st, "| ", 2);
-        if (st->table_cells[i]) {
-            buf_append(st, st->table_cells[i], (int)strlen(st->table_cells[i]));
-        }
-        buf_append(st, " ", 1);
-        free(st->table_cells[i]);
+static void save_table_row(MdState *st) {
+    if (st->table_row_count >= 64) return;
+    int cols = st->table_cell_idx < 32 ? st->table_cell_idx : 32;
+    char **row = calloc(32, sizeof(char *));
+    if (!row) return;
+    for (int i = 0; i < cols; i++) {
+        row[i] = st->table_cells[i] ? st->table_cells[i] : strdup("");
         st->table_cells[i] = NULL;
     }
-    buf_append(st, "|", 1);
+    st->table_rows[st->table_row_count++] = row;
     st->table_cell_idx = 0;
-
-    /* Use linestore_alloc_line directly for table rows */
-    if (st->ls->count >= st->ls->capacity) {
-        int new_cap = st->ls->capacity * 2;
-        StoreLine *nl = realloc(st->ls->lines, (size_t)new_cap * sizeof(StoreLine));
-        if (!nl) { buf_clear(st); return; }
-        st->ls->lines = nl;
-        st->ls->capacity = new_cap;
-    }
-    StoreLine *line = &st->ls->lines[st->ls->count];
-    memset(line, 0, sizeof(StoreLine));
-    line->msg_index = st->ls->current_msg;
-    line->type = LINE_TABLE_ROW;
-    line->indent = 2;
-    line->raw_text = st->line_buf && st->line_len > 0 ? strdup(st->line_buf) : strdup("");
-    line->wrap_count = 1;
-    if (is_header) {
-        line->heading_level = 1;
-    }
-    st->ls->total_screen_rows++;
-    st->ls->count++;
-    buf_clear(st);
 }
 
-static void flush_table_separator(MdState *st) {
-    buf_clear(st);
-    for (int i = 0; i < st->table_col_count; i++) {
-        buf_append(st, "|", 1);
-        buf_append(st, "---", 3);
-    }
-    buf_append(st, "|", 1);
-
+static void emit_table_line(MdState *st, const char *text, LineType type, int heading_level) {
     if (st->ls->count >= st->ls->capacity) {
         int new_cap = st->ls->capacity * 2;
         StoreLine *nl = realloc(st->ls->lines, (size_t)new_cap * sizeof(StoreLine));
-        if (!nl) { buf_clear(st); return; }
+        if (!nl) return;
         st->ls->lines = nl;
         st->ls->capacity = new_cap;
     }
     StoreLine *line = &st->ls->lines[st->ls->count];
     memset(line, 0, sizeof(StoreLine));
     line->msg_index = st->ls->current_msg;
-    line->type = LINE_TABLE_SEPARATOR;
+    line->type = type;
     line->indent = 2;
-    line->raw_text = strdup(st->line_buf);
+    line->raw_text = strdup(text ? text : "");
     line->wrap_count = 1;
+    line->heading_level = (uint16_t)heading_level;
     st->ls->total_screen_rows++;
     st->ls->count++;
+}
+
+static void flush_all_table_rows(MdState *st) {
+    int cols = st->table_col_count;
+    if (cols > 32) cols = 32;
+    if (cols <= 0 || st->table_row_count <= 0) return;
+
+    /* Compute max width per column */
+    int col_widths[32] = {0};
+    for (int r = 0; r < st->table_row_count; r++) {
+        for (int c = 0; c < cols; c++) {
+            if (st->table_rows[r] && st->table_rows[r][c]) {
+                int w = (int)strlen(st->table_rows[r][c]);
+                if (w > col_widths[c]) col_widths[c] = w;
+            }
+        }
+    }
+
+    /* Emit each row padded */
+    for (int r = 0; r < st->table_row_count; r++) {
+        buf_clear(st);
+        for (int c = 0; c < cols; c++) {
+            const char *cell = (st->table_rows[r] && st->table_rows[r][c])
+                                ? st->table_rows[r][c] : "";
+            int cell_len = (int)strlen(cell);
+            int pad = col_widths[c] - cell_len;
+
+            buf_append(st, " ", 1);
+            buf_append(st, cell, cell_len);
+            for (int p = 0; p < pad; p++) buf_append(st, " ", 1);
+            buf_append(st, "  ", 2);
+        }
+
+        bool is_header = (r < st->table_header_rows);
+        emit_table_line(st, st->line_buf, LINE_TABLE_ROW, is_header ? 1 : 0);
+
+        /* Separator after header */
+        if (r == st->table_header_rows - 1) {
+            buf_clear(st);
+            for (int c = 0; c < cols; c++) {
+                buf_append(st, " ", 1);
+                for (int d = 0; d < col_widths[c]; d++) {
+                    buf_append(st, "\xe2\x94\x80", 3);
+                }
+                buf_append(st, "  ", 2);
+            }
+            emit_table_line(st, st->line_buf, LINE_TABLE_SEPARATOR, 0);
+        }
+    }
     buf_clear(st);
+
+    /* Free row data */
+    for (int r = 0; r < st->table_row_count; r++) {
+        if (st->table_rows[r]) {
+            for (int c = 0; c < 32; c++) free(st->table_rows[r][c]);
+            free(st->table_rows[r]);
+            st->table_rows[r] = NULL;
+        }
+    }
+    st->table_row_count = 0;
+    st->table_header_rows = 0;
 }
 
 static void flush_line(MdState *st, LineType type, int indent, int heading_level) {
@@ -343,18 +377,19 @@ static int md_leave_block(MD_BLOCKTYPE type, void *detail, void *userdata) {
         }
         break;
     case MD_BLOCK_TABLE:
+        flush_all_table_rows(st);
         st->in_table = 0;
         break;
     case MD_BLOCK_THEAD:
-        flush_table_row(st, true);
-        flush_table_separator(st);
+        save_table_row(st);
+        st->table_header_rows = st->table_row_count;
         st->in_table_header = 0;
         break;
     case MD_BLOCK_TBODY:
         break;
     case MD_BLOCK_TR:
         if (!st->in_table_header) {
-            flush_table_row(st, false);
+            save_table_row(st);
         }
         break;
     case MD_BLOCK_TH:
