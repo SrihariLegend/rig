@@ -21,6 +21,7 @@ typedef enum {
     LINE_SEPARATOR,
     LINE_TABLE_ROW,
     LINE_TABLE_SEPARATOR,
+    LINE_SPLASH,
 } LineType;
 
 typedef enum {
@@ -36,6 +37,7 @@ typedef struct {
     const char *text;
     int len;
     SpanFlags flags;
+    float brightness;   /* 0.0-1.0, used by LINE_SPLASH */
 } Span;
 
 typedef struct {
@@ -49,6 +51,7 @@ typedef struct {
     int span_count;
 
     uint16_t wrap_count;
+    float brightness;    /* 0.0-1.0, used by LINE_SPLASH */
 } StoreLine;
 
 typedef struct {
@@ -88,6 +91,8 @@ void linestore_add_tool_start(LineStore *ls, const char *name, const char *args)
 void linestore_add_tool_output(LineStore *ls, const char *text);
 void linestore_add_tool_done(LineStore *ls, const char *name);
 void linestore_add_error(LineStore *ls, const char *text);
+void linestore_add_splash(LineStore *ls, const char *text, float brightness);
+void linestore_add_splash_layered(LineStore *ls, const char *text, const char *layers);
 
 int linestore_screen_row_count(const LineStore *ls);
 

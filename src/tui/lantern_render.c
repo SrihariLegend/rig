@@ -335,6 +335,55 @@ static void render_line_content(const LanternRenderer *r, const StoreLine *line,
     case LINE_SEPARATOR:
         break;
 
+    case LINE_SPLASH: {
+        RGB accent = lantern_accent_at(l, distance);
+        if (line->spans && line->span_count > 0) {
+            for (int s = 0; s < line->span_count; s++) {
+                float br = line->spans[s].brightness;
+                if (br <= 0.001f) {
+                    /* Invisible layer — count visual chars, emit spaces */
+                    const unsigned char *sp = (const unsigned char *)line->spans[s].text;
+                    const unsigned char *end = sp + line->spans[s].len;
+                    while (sp < end) {
+                        terminal_write_str(" ");
+                        if (*sp >= 0xF0) sp += 4;
+                        else if (*sp >= 0xE0) sp += 3;
+                        else if (*sp >= 0xC0) sp += 2;
+                        else sp++;
+                    }
+                } else {
+                    RGB c = {
+                        (uint8_t)(accent.r * br),
+                        (uint8_t)(accent.g * br),
+                        (uint8_t)(accent.b * br),
+                    };
+                    lantern_emit_fg(l, &c, fg_buf, sizeof(fg_buf));
+                    terminal_write_str(fg_buf);
+                    char tmp[64];
+                    int slen = line->spans[s].len;
+                    if (slen >= (int)sizeof(tmp)) slen = (int)sizeof(tmp) - 1;
+                    memcpy(tmp, line->spans[s].text, slen);
+                    tmp[slen] = '\0';
+                    terminal_write_str(tmp);
+                }
+            }
+            terminal_write_str(reset_buf);
+        } else {
+            float br = line->brightness;
+            if (br <= 0.0f) br = 0.01f;
+            RGB splash_color = {
+                (uint8_t)(accent.r * br),
+                (uint8_t)(accent.g * br),
+                (uint8_t)(accent.b * br),
+            };
+            lantern_emit_fg(l, &splash_color, fg_buf, sizeof(fg_buf));
+            terminal_write_str(fg_buf);
+            if (line->raw_text) terminal_write_str(line->raw_text);
+            terminal_write_str(reset_buf);
+        }
+        break;
+    }
+
     default:
         if (line->spans && line->span_count > 0) {
             for (int s = 0; s < line->span_count; s++) {

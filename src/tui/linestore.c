@@ -398,6 +398,83 @@ void linestore_add_tool_done(LineStore *ls, const char *name) {
     ls->total_screen_rows++;
 }
 
+void linestore_add_splash(LineStore *ls, const char *text, float brightness) {
+    StoreLine *line = linestore_alloc_line(ls);
+    if (!line) return;
+    line->type = LINE_SPLASH;
+    line->raw_text = strdup(text ? text : "");
+    line->brightness = brightness;
+    line->wrap_count = 1;
+    ls->total_screen_rows++;
+}
+
+static float layer_brightness(char layer) {
+    switch (layer) {
+        case 'O': return 1.0f;    /* outer edge */
+        case 'M': return 0.55f;   /* mid sail */
+        case 'I': return 0.30f;   /* inner sail */
+        case 'm': return 0.70f;   /* mast */
+        case 'L': return 0.85f;   /* logo */
+        case 'i': return 0.35f;   /* info text */
+        case 'b': return 0.50f;   /* base line */
+        default:  return 0.0f;    /* space */
+    }
+}
+
+void linestore_add_splash_layered(LineStore *ls, const char *text, const char *layers) {
+    StoreLine *line = linestore_alloc_line(ls);
+    if (!line) return;
+    line->type = LINE_SPLASH;
+    line->raw_text = strdup(text ? text : "");
+    line->brightness = 1.0f;
+    line->wrap_count = 1;
+
+    /* Build spans from layer map — group consecutive same-layer chars */
+    const unsigned char *tp = (const unsigned char *)line->raw_text;
+    int li = 0;
+    int layers_len = layers ? (int)strlen(layers) : 0;
+
+    int span_cap = 16;
+    Span *spans = calloc(span_cap, sizeof(Span));
+    int span_count = 0;
+
+    while (*tp && li < layers_len) {
+        char layer = layers[li];
+        float br = layer_brightness(layer);
+
+        const char *start = (const char *)tp;
+        int char_count = 0;
+
+        /* Group consecutive chars with same layer */
+        while (*tp && li < layers_len && layers[li] == layer) {
+            int clen = 1;
+            if (*tp >= 0xF0) clen = 4;
+            else if (*tp >= 0xE0) clen = 3;
+            else if (*tp >= 0xC0) clen = 2;
+            tp += clen;
+            li++;
+            char_count++;
+        }
+
+        if (span_count >= span_cap) {
+            span_cap *= 2;
+            Span *ns = realloc(spans, (size_t)span_cap * sizeof(Span));
+            if (!ns) break;
+            spans = ns;
+        }
+
+        spans[span_count].text = start;
+        spans[span_count].len = (int)((const char *)tp - start);
+        spans[span_count].flags = SPAN_PLAIN;
+        spans[span_count].brightness = br;
+        span_count++;
+    }
+
+    line->spans = spans;
+    line->span_count = span_count;
+    ls->total_screen_rows++;
+}
+
 void linestore_add_error(LineStore *ls, const char *text) {
     StoreLine *line = linestore_alloc_line(ls);
     if (!line) return;

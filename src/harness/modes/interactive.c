@@ -222,13 +222,34 @@ static int splash_vis_width(const char *s) {
     return w;
 }
 
-static void show_splash(InteractiveState *state) {
-    /* Sail: each char tagged with layer 0=outer, 1=mid, 2=inner, 3=mast */
-    /* We render char-by-char with different brightness per layer */
+static char *splash_center(const char *text, int term_width) {
+    int vw = splash_vis_width(text);
+    int pad = (term_width - vw) / 2;
+    if (pad < 0) pad = 0;
 
+    size_t tlen = strlen(text);
+    char *buf = malloc(pad + tlen + 1);
+    if (!buf) return strdup(text);
+    memset(buf, ' ', pad);
+    memcpy(buf + pad, text, tlen + 1);
+    return buf;
+}
+
+static char *splash_center_layers(const char *layers, int text_vis_width, int term_width) {
+    int pad = (term_width - text_vis_width) / 2;
+    if (pad < 0) pad = 0;
+
+    size_t llen = strlen(layers);
+    char *buf = malloc(pad + llen + 1);
+    if (!buf) return strdup(layers);
+    memset(buf, '.', pad);
+    memcpy(buf + pad, layers, llen + 1);
+    return buf;
+}
+
+static void show_splash(InteractiveState *state) {
     typedef struct { const char *text; const char *layers; } SailLine;
 
-    /*  Layer key: O=outer edge, M=mid sail, I=inner sail, m=mast/base, .=space */
     static const SailLine sail[] = {
         { "\xe2\x96\xb2",                                                                                                       "O" },
         { "\xe2\x95\xb1   \xe2\x95\xb2",                                                                                       "O...O" },
@@ -242,11 +263,12 @@ static void show_splash(InteractiveState *state) {
         { "\xe2\x95\xb1  \xe2\x95\xb1    \xe2\x95\xb1    \xe2\x94\x82    \xe2\x95\xb2    \xe2\x95\xb2  \xe2\x95\xb2",               "O..M....I....m....I....M..O" },
         { "\xe2\x95\xb1    \xe2\x95\xb1 \xe2\x95\xb1   \xe2\x95\xb1  \xe2\x94\x82  \xe2\x95\xb2   \xe2\x95\xb2 \xe2\x95\xb2    \xe2\x95\xb2", "O....M.I...I..m..I...I.M....O" },
         { "\xe2\x95\xb1 \xe2\x95\xb1   \xe2\x95\xb1  \xe2\x95\xb1   \xe2\x95\xb1 \xe2\x94\x82 \xe2\x95\xb2   \xe2\x95\xb2  \xe2\x95\xb2   \xe2\x95\xb2 \xe2\x95\xb2", "O.M...I..I...I.m.I...I..I...M.O" },
-        { "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xbc\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80", NULL },
-        { "\xe2\x94\x82",                                                                                                       NULL },
-        { "\xe2\x94\x80\xe2\x94\x80\xe2\x94\xb4\xe2\x94\x80\xe2\x94\x80",                                                       NULL },
     };
-
+    static const char *base_lines[] = {
+        "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xbc\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80",
+        "\xe2\x94\x82",
+        "\xe2\x94\x80\xe2\x94\x80\xe2\x94\xb4\xe2\x94\x80\xe2\x94\x80",
+    };
     static const char *logo[] = {
         "\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  \xe2\x96\x88\xe2\x96\x88\xe2\x95\x97  \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97",
         "\xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x96\x88\xe2\x96\x88\xe2\x95\x97 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x91 \xe2\x96\x88\xe2\x96\x88\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d",
@@ -257,145 +279,60 @@ static void show_splash(InteractiveState *state) {
     };
 
     int tw = state->renderer->term_width;
-    int th = state->renderer->term_height;
-    RGB accent = state->lantern->config.accent;
-    bool use_color = (state->lantern->tier == COLOR_TRUECOLOR || state->lantern->tier == COLOR_256);
 
-    /* Brightness multipliers per layer */
-    float bright_outer = 1.0f;
-    float bright_mid   = 0.55f;
-    float bright_inner = 0.30f;
-    float bright_mast  = 0.70f;
-    float bright_base  = 0.50f;
-    float bright_logo  = 0.85f;
-    float bright_info  = 0.35f;
+    linestore_add_blank(state->store);
+    linestore_add_blank(state->store);
 
-    Str out = str_new(4096);
-
-    /* Clear screen, hide cursor */
-    str_append(&out, "\x1b[2J\x1b[H\x1b[?25l");
-
-    /* Calculate vertical centering */
-    int total_lines = 2 + 15 + 2 + 6 + 1 + 2 + 2;  /* blanks + sail + blanks + logo + blank + info + blanks */
-    int y_start = (th - total_lines) / 2;
-    if (y_start < 1) y_start = 1;
-
-    int row = y_start;
-
-    /* Helper macro for colored centered line */
-    #define SPLASH_LINE_COLOR(text, brightness) do { \
-        int vw = splash_vis_width(text); \
-        int pad = (tw - vw) / 2; \
-        if (pad < 0) pad = 0; \
-        str_appendf(&out, "\x1b[%d;1H", row++); \
-        for (int _p = 0; _p < pad; _p++) str_append_char(&out, ' '); \
-        if (use_color) { \
-            uint8_t _r = (uint8_t)(accent.r * (brightness)); \
-            uint8_t _g = (uint8_t)(accent.g * (brightness)); \
-            uint8_t _b = (uint8_t)(accent.b * (brightness)); \
-            str_appendf(&out, "\x1b[38;2;%d;%d;%dm", _r, _g, _b); \
-        } \
-        str_append(&out, text); \
-        if (use_color) str_append(&out, "\x1b[0m"); \
-    } while(0)
-
-    /* Blank lines */
-    row += 2;
-
-    /* Sail lines — char-by-char coloring for layered lines */
-    for (int i = 0; i < 15; i++) {
-        const char *text = sail[i].text;
-        const char *layers = sail[i].layers;
-
-        if (!layers) {
-            /* Base/mast lines — single color */
-            SPLASH_LINE_COLOR(text, bright_base);
-            continue;
-        }
-
-        int vw = splash_vis_width(text);
-        int pad = (tw - vw) / 2;
-        if (pad < 0) pad = 0;
-        str_appendf(&out, "\x1b[%d;1H", row++);
-        for (int p = 0; p < pad; p++) str_append_char(&out, ' ');
-
-        /* Walk text and layers in parallel */
-        const unsigned char *tp = (const unsigned char *)text;
-        int li = 0;
-        while (*tp && layers[li]) {
-            float br;
-            switch (layers[li]) {
-                case 'O': br = bright_outer; break;
-                case 'M': br = bright_mid;   break;
-                case 'I': br = bright_inner; break;
-                case 'm': br = bright_mast;  break;
-                default:  br = 0.0f;         break;
-            }
-
-            /* Determine char byte length */
-            int clen = 1;
-            if (*tp >= 0xF0) clen = 4;
-            else if (*tp >= 0xE0) clen = 3;
-            else if (*tp >= 0xC0) clen = 2;
-
-            if (layers[li] == '.') {
-                str_append_char(&out, ' ');
-            } else if (use_color) {
-                uint8_t r = (uint8_t)(accent.r * br);
-                uint8_t g = (uint8_t)(accent.g * br);
-                uint8_t b = (uint8_t)(accent.b * br);
-                str_appendf(&out, "\x1b[38;2;%d;%d;%dm", r, g, b);
-                str_append_len(&out, (const char *)tp, clen);
-                str_append(&out, "\x1b[0m");
-            } else {
-                str_append_len(&out, (const char *)tp, clen);
-            }
-
-            tp += clen;
-            li++;
-        }
+    /* Sail — layered per-char brightness */
+    for (int i = 0; i < 12; i++) {
+        char *centered = splash_center(sail[i].text, tw);
+        char *clayers = splash_center_layers(sail[i].layers,
+                            splash_vis_width(sail[i].text), tw);
+        linestore_add_splash_layered(state->store, centered, clayers);
+        free(centered);
+        free(clayers);
     }
 
-    /* Blank lines */
-    row += 2;
+    /* Base lines — single brightness */
+    for (int i = 0; i < 3; i++) {
+        char *centered = splash_center(base_lines[i], tw);
+        linestore_add_splash(state->store, centered, 0.50f);
+        free(centered);
+    }
+
+    linestore_add_blank(state->store);
+    linestore_add_blank(state->store);
 
     /* Logo */
     for (int i = 0; i < 6; i++) {
-        SPLASH_LINE_COLOR(logo[i], bright_logo);
+        char *centered = splash_center(logo[i], tw);
+        linestore_add_splash(state->store, centered, 0.85f);
+        free(centered);
     }
 
-    /* Blank */
-    row++;
+    linestore_add_blank(state->store);
 
-    /* Info lines */
+    /* Info */
     if (state->model) {
         char info[256];
         snprintf(info, sizeof(info), "%s  \xc2\xb7  v%s", state->model->name, RIG_VERSION);
-        SPLASH_LINE_COLOR(info, bright_info);
+        char *centered = splash_center(info, tw);
+        linestore_add_splash(state->store, centered, 0.35f);
+        free(centered);
     } else {
         char info[128];
         snprintf(info, sizeof(info), "v%s", RIG_VERSION);
-        SPLASH_LINE_COLOR(info, bright_info);
+        char *centered = splash_center(info, tw);
+        linestore_add_splash(state->store, centered, 0.35f);
+        free(centered);
     }
-    SPLASH_LINE_COLOR("/help for commands", bright_info);
-
-    #undef SPLASH_LINE_COLOR
-
-    /* Write it all at once */
-    write(STDOUT_FILENO, out.data, out.len);
-    str_free(&out);
-
-    /* Wait for keypress or 3 seconds, then transition to normal TUI */
-    struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
-    poll(&pfd, 1, 3000);
-    if (pfd.revents & POLLIN) {
-        char discard[64];
-        read(STDIN_FILENO, discard, sizeof(discard));
+    {
+        char *centered = splash_center("/help for commands", tw);
+        linestore_add_splash(state->store, centered, 0.35f);
+        free(centered);
     }
 
-    /* Add blank lines to linestore so scroll position is correct */
-    int splash_rows = row - y_start + 2;
-    (void)splash_rows;
+    linestore_add_blank(state->store);
     linestore_add_blank(state->store);
 }
 
