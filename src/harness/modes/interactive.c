@@ -63,8 +63,9 @@ typedef struct {
     volatile bool needs_render;
     volatile bool running;
 
-    Tool tools[6];
+    Tool *tools;
     int tool_count;
+    int tool_cap;
     char cwd[4096];
     char *api_key;
     TurnLog *turnlog;
@@ -209,6 +210,45 @@ static void history_down(InteractiveState *state) {
         free(state->history_stash);
         state->history_stash = NULL;
     }
+}
+
+/* ---- Lua tool execution bridge ---- */
+
+/* Thread-local: set by before_tool hook so execute() knows which tool it is */
+static __thread const char *lua_tool_current_name = NULL;
+
+static int lua_tool_execute(const char *call_id, cJSON *params, void *signal,
+                            void (*on_update)(void *ctx, cJSON *partial), void *ctx,
+                            ContentBlock **content, int *content_count,
+                            cJSON **details, bool *terminate) {
+    (void)call_id; (void)signal; (void)on_update; (void)ctx; (void)details; (void)terminate;
+
+    extern InteractiveState *g_interactive_state;
+    InteractiveState *istate = g_interactive_state;
+    if (!istate || !istate->pi || !istate->pi->api || !lua_tool_current_name) {
+        *content = malloc(sizeof(ContentBlock));
+        (*content)[0] = content_text("lua tool: no context", NULL);
+        *content_count = 1;
+        return -1;
+    }
+
+    PiExtensionAPI *eapi = istate->pi->api;
+    char *result = NULL;
+    int rc = -1;
+    for (int i = 0; i < eapi->extension_count; i++) {
+        Extension *ext = eapi->extensions[i];
+        if (ext && ext->is_lua && ext->lua_state) {
+            rc = lua_ext_call_tool((LuaExtState *)ext->lua_state,
+                                   lua_tool_current_name, params, &result);
+            if (rc == 0) break;
+        }
+    }
+
+    *content = malloc(sizeof(ContentBlock));
+    (*content)[0] = content_text(result ? result : "lua tool: no result", NULL);
+    *content_count = 1;
+    free(result);
+    return rc == 0 ? 0 : -1;
 }
 
 /* ---- LLM call helper for /ext build ---- */
@@ -568,6 +608,9 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
 
     const char *name = ctx->tool_call ? ctx->tool_call->tool_call.name : NULL;
     if (!name) return 0;
+
+    /* Set thread-local for Lua tool bridge */
+    lua_tool_current_name = name;
 
     if (strcmp(name, "write") == 0 || strcmp(name, "edit") == 0) {
         const char *path = NULL;
@@ -1946,6 +1989,8 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     state->agent->thinking_level = THINKING_OFF;
 
     getcwd(state->cwd, sizeof(state->cwd));
+    state->tool_cap = 32;
+    state->tools = calloc(state->tool_cap, sizeof(Tool));
     state->tools[state->tool_count++] = tool_bash_create(state->cwd);
     state->tools[state->tool_count++] = tool_read_create();
     state->tools[state->tool_count++] = tool_write_create();
@@ -2025,6 +2070,52 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
                 lua_ext_set_context((LuaExtState *)ext->lua_state, &lua_ctx);
             }
         }
+    }
+
+    /* Merge extension-registered tools into agent's tool array */
+    if (state->pi && state->pi->api) {
+        PiExtensionAPI *eapi = state->pi->api;
+        for (int i = 0; i < eapi->tool_count; i++) {
+            Tool *et = eapi->tools[i];
+            if (!et || !et->name) continue;
+
+            /* Skip if already in agent tools (by name) */
+            bool exists = false;
+            for (int j = 0; j < state->tool_count; j++) {
+                if (state->tools[j].name && strcmp(state->tools[j].name, et->name) == 0) {
+                    exists = true; break;
+                }
+            }
+            if (exists) continue;
+
+            /* Grow if needed */
+            if (state->tool_count >= state->tool_cap) {
+                int new_cap = state->tool_cap * 2;
+                Tool *nt = realloc(state->tools, (size_t)new_cap * sizeof(Tool));
+                if (!nt) continue;
+                state->tools = nt;
+                state->tool_cap = new_cap;
+            }
+
+            /* Copy metadata, set Lua execute bridge */
+            Tool *dest = &state->tools[state->tool_count];
+            memset(dest, 0, sizeof(Tool));
+            dest->name = strdup(et->name);
+            dest->description = et->description ? strdup(et->description) : NULL;
+            dest->parameters = et->parameters ? cJSON_Duplicate(et->parameters, 1) : NULL;
+            dest->execute = lua_tool_execute;
+            state->tool_count++;
+        }
+
+        /* Update agent with expanded tool list */
+        state->agent->tools = state->tools;
+        state->agent->tool_count = state->tool_count;
+        free(state->agent->system_prompt);
+        state->agent->system_prompt = system_prompt_build(
+            state->tools, state->tool_count, state->cwd);
+
+        LOG_INFO("agent has %d tools (%d from extensions)",
+                 state->tool_count, state->tool_count - 6);
     }
 
     /* Session */
@@ -2166,6 +2257,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     pthread_mutex_destroy(&state->mutex);
     history_free(state);
     free(state->input_buf);
+    free(state->tools);
     free(state->api_key);
     free(state->last_prompt);
     /* Flush any in-memory turn to disk before exit */
