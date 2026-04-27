@@ -160,6 +160,87 @@ static int session_ensure_capacity(Session *s, int additional) {
     return 0;
 }
 
+static void format_timestamp(int64_t ms, char *buf, size_t bufsz) {
+    time_t t = (time_t)(ms / 1000);
+    struct tm *tm = localtime(&t);
+    strftime(buf, bufsz, "%Y%m%dT%H%M", tm);
+}
+
+static char *extract_keyword(const char *text) {
+    if (!text) return strdup("chat");
+
+    /* Skip common prefixes */
+    static const char *skip[] = {
+        "can you ", "could you ", "please ", "help me ", "i want to ",
+        "i need to ", "how do i ", "how to ", "what is ", "what's ",
+        NULL
+    };
+    const char *p = text;
+    for (int i = 0; skip[i]; i++) {
+        size_t slen = strlen(skip[i]);
+        if (strncasecmp(p, skip[i], slen) == 0) { p += slen; break; }
+    }
+
+    /* Extract up to 3 significant words, skip small words */
+    static const char *stopwords[] = {
+        "a", "an", "the", "is", "are", "was", "were", "be", "been",
+        "to", "of", "in", "on", "at", "for", "with", "and", "or",
+        "my", "your", "this", "that", "it", "its", NULL
+    };
+
+    char result[64] = {0};
+    int ri = 0;
+    int words = 0;
+
+    while (*p && words < 3 && ri < 50) {
+        while (*p && (*p == ' ' || *p == '\t' || *p == '\n')) p++;
+        if (!*p) break;
+
+        const char *word_start = p;
+        while (*p && *p != ' ' && *p != '\t' && *p != '\n') p++;
+        int wlen = (int)(p - word_start);
+        if (wlen <= 0) continue;
+
+        /* Check stopword */
+        bool is_stop = false;
+        if (wlen <= 5) {
+            char lower[8] = {0};
+            for (int i = 0; i < wlen && i < 7; i++)
+                lower[i] = (char)(word_start[i] >= 'A' && word_start[i] <= 'Z'
+                           ? word_start[i] + 32 : word_start[i]);
+            for (int i = 0; stopwords[i]; i++) {
+                if (strcmp(lower, stopwords[i]) == 0) { is_stop = true; break; }
+            }
+        }
+        if (is_stop) continue;
+
+        if (words > 0 && ri < 50) result[ri++] = '-';
+        for (int i = 0; i < wlen && ri < 50; i++) {
+            char c = word_start[i];
+            if (c >= 'A' && c <= 'Z') c += 32;
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) result[ri++] = c;
+            else if (c == '-' || c == '_') result[ri++] = '-';
+        }
+        words++;
+    }
+
+    if (ri == 0) return strdup("chat");
+    result[ri] = '\0';
+    return strdup(result);
+}
+
+static char *build_session_filename(const char *keyword, const char *hash,
+                                    int64_t created, int64_t modified) {
+    char created_ts[20], modified_ts[20];
+    format_timestamp(created, created_ts, sizeof(created_ts));
+    format_timestamp(modified, modified_ts, sizeof(modified_ts));
+
+    char filename[256];
+    snprintf(filename, sizeof(filename), "%s-%s-%s-%.4s.jsonl",
+             modified_ts, created_ts, keyword ? keyword : "chat", hash ? hash : "0000");
+    return strdup(filename);
+}
+
 Session *session_create(const char *sessions_dir) {
     if (!sessions_dir) return NULL;
 
@@ -167,28 +248,25 @@ Session *session_create(const char *sessions_dir) {
     if (!s) return NULL;
 
     s->session_id = session_generate_id();
-    if (!s->session_id) {
-        free(s);
-        return NULL;
-    }
+    if (!s->session_id) { free(s); return NULL; }
 
-    char filename[64];
-    snprintf(filename, sizeof(filename), "%s.jsonl", s->session_id);
-    s->file_path = fs_join(sessions_dir, filename);
+    s->sessions_dir = strdup(sessions_dir);
+    s->created_at = (int64_t)time(NULL) * 1000;
+    s->version = 3;
+
+    /* Initial filename uses hash only — keyword added on first message */
+    char *fname = build_session_filename(NULL, s->session_id, s->created_at, s->created_at);
+    s->file_path = fs_join(sessions_dir, fname);
+    free(fname);
+
     if (!s->file_path) {
         free(s->session_id);
+        free(s->sessions_dir);
         free(s);
         return NULL;
     }
 
-    s->version = 3;
-    s->leaf_id = NULL;
-    s->entries = NULL;
-    s->entry_count = 0;
-    s->entry_capacity = 0;
-
     fs_mkdir_p(sessions_dir);
-
     return s;
 }
 
@@ -208,12 +286,32 @@ Session *session_load(const char *path) {
     const char *filename = strrchr(path, '/');
     filename = filename ? filename + 1 : path;
 
-    char *dot = strrchr(filename, '.');
-    if (dot) {
-        s->session_id = strndup(filename, dot - filename);
-    } else {
-        s->session_id = strdup(filename);
+    /* Extract sessions dir from path */
+    if (filename > path) {
+        s->sessions_dir = strndup(path, (size_t)(filename - path - 1));
     }
+
+    /* Parse filename: MODIFIED-CREATED-KEYWORD-HASH.jsonl */
+    /* Or legacy: HEXID.jsonl */
+    char *dot = strrchr(filename, '.');
+    char *name_part = dot ? strndup(filename, dot - filename) : strdup(filename);
+
+    /* Try to extract hash (last segment after '-') */
+    char *last_dash = strrchr(name_part, '-');
+    if (last_dash && last_dash != name_part) {
+        s->session_id = strdup(last_dash + 1);
+
+        /* Extract keyword (third segment) */
+        *last_dash = '\0';
+        char *kw_dash = strrchr(name_part, '-');
+        if (kw_dash) {
+            s->keyword = strdup(kw_dash + 1);
+        }
+    } else {
+        /* Legacy format — whole name is the ID */
+        s->session_id = strdup(name_part);
+    }
+    free(name_part);
 
     s->file_path = strdup(path);
     s->version = 3;
@@ -294,7 +392,9 @@ void session_free(Session *s) {
 
     free(s->session_id);
     free(s->file_path);
+    free(s->sessions_dir);
     free(s->leaf_id);
+    free(s->keyword);
 
     for (int i = 0; i < s->entry_count; i++) {
         session_entry_free(&s->entries[i]);
@@ -304,8 +404,39 @@ void session_free(Session *s) {
     free(s);
 }
 
+static void session_update_filename(Session *s) {
+    if (!s->sessions_dir) return;
+
+    int64_t now = (int64_t)time(NULL) * 1000;
+    char *fname = build_session_filename(s->keyword, s->session_id, s->created_at, now);
+    char *new_path = fs_join(s->sessions_dir, fname);
+    free(fname);
+    if (!new_path) return;
+
+    if (s->file_path && strcmp(s->file_path, new_path) != 0) {
+        if (fs_exists(s->file_path)) {
+            rename(s->file_path, new_path);
+        }
+        free(s->file_path);
+        s->file_path = new_path;
+    } else {
+        free(new_path);
+    }
+}
+
 int session_append(Session *s, SessionEntryType type, cJSON *data) {
     if (!s) return -1;
+
+    /* Extract keyword from first user message */
+    if (!s->keyword && type == ENTRY_MESSAGE && data) {
+        cJSON *role = cJSON_GetObjectItem(data, "role");
+        cJSON *text = cJSON_GetObjectItem(data, "text");
+        if (role && cJSON_IsString(role) && strcmp(role->valuestring, "user") == 0 &&
+            text && cJSON_IsString(text)) {
+            s->keyword = extract_keyword(text->valuestring);
+            session_update_filename(s);
+        }
+    }
 
     SessionEntry *entry = session_entry_create(s->leaf_id, type, data);
     if (!entry) return -1;
@@ -347,6 +478,9 @@ int session_append(Session *s, SessionEntryType type, cJSON *data) {
 
 int session_flush(Session *s) {
     if (!s) return -1;
+
+    /* Update filename with current timestamp */
+    session_update_filename(s);
 
     Str content = str_new(1024);
 

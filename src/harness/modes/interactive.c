@@ -1316,40 +1316,180 @@ static bool handle_slash_command(InteractiveState *state) {
         return true;
     }
 
-    /* /sessions */
+    /* /sessions — interactive picker */
     if (strcmp(cmd, "sessions") == 0) {
-        pthread_mutex_lock(&state->mutex);
         const char *dir = config_sessions_dir();
-        if (!dir) { cmd_output(state, "no sessions directory"); cmd_finish(state); return true; }
-        char list_cmd[512];
-        snprintf(list_cmd, sizeof(list_cmd), "ls -1t '%s'/*.jsonl 2>/dev/null | head -20", dir);
-        pthread_mutex_unlock(&state->mutex);
+        if (!dir) {
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "no sessions directory");
+            cmd_finish(state);
+            return true;
+        }
 
-        Str output = str_new(1024);
-        ProcessOptions opts = {
+        /* Collect session files sorted by modification time */
+        char list_cmd[512];
+        snprintf(list_cmd, sizeof(list_cmd), "ls -1t '%s'/*.jsonl 2>/dev/null | head -30", dir);
+        Str output = str_new(2048);
+        ProcessOptions popts = {
             .command = list_cmd,
             .timeout_ms = 5000,
             .on_stdout = collect_output,
             .ctx = &output,
         };
-        ProcessResult result;
-        process_run(&opts, &result);
+        ProcessResult presult;
+        process_run(&popts, &presult);
 
-        pthread_mutex_lock(&state->mutex);
-        if (output.len > 0) {
-            linestore_add_tool_output(state->store, output.data);
-        } else {
+        if (!output.data || output.len == 0) {
+            str_free(&output);
+            pthread_mutex_lock(&state->mutex);
             cmd_output(state, "no sessions found");
+            cmd_finish(state);
+            return true;
         }
-        if (state->session) {
-            char buf[256];
-            snprintf(buf, sizeof(buf), "current: %s",
-                     state->session->session_id ? state->session->session_id : "none");
-            cmd_output(state, buf);
+
+        /* Parse file list into array */
+        char *paths[30] = {0};
+        char *labels[30] = {0};
+        int count = 0;
+
+        char *line = output.data;
+        while (line && *line && count < 30) {
+            char *nl = strchr(line, '\n');
+            if (nl) *nl = '\0';
+            if (strlen(line) > 0) {
+                paths[count] = strdup(line);
+
+                /* Build display label from filename */
+                const char *fname = strrchr(line, '/');
+                fname = fname ? fname + 1 : line;
+                /* Strip .jsonl */
+                char label[128];
+                strncpy(label, fname, sizeof(label) - 1);
+                char *ext = strstr(label, ".jsonl");
+                if (ext) *ext = '\0';
+
+                /* Replace dashes with spaces for readability, mark current */
+                bool is_current = state->session && state->session->file_path &&
+                                  strcmp(state->session->file_path, line) == 0;
+                if (is_current) {
+                    char marked[140];
+                    snprintf(marked, sizeof(marked), "%s  *", label);
+                    labels[count] = strdup(marked);
+                } else {
+                    labels[count] = strdup(label);
+                }
+                count++;
+            }
+            line = nl ? nl + 1 : NULL;
         }
-        (void)result;
+
+        if (count == 0) {
+            str_free(&output);
+            pthread_mutex_lock(&state->mutex);
+            cmd_output(state, "no sessions found");
+            cmd_finish(state);
+            return true;
+        }
+
+        /* Interactive picker loop */
+        int selected = 0;
+        int scroll_top = 0;
+        int visible = state->renderer->term_height - 4;
+        if (visible > count) visible = count;
+        if (visible < 1) visible = 1;
+
+        struct pollfd pfd2 = { .fd = STDIN_FILENO, .events = POLLIN };
+        bool picked = false;
+        bool cancelled = false;
+
+        while (!picked && !cancelled) {
+            /* Render picker */
+            Str screen = str_new(2048);
+            str_append(&screen, "\x1b[2J\x1b[H");  /* clear + home */
+            str_append(&screen, "\x1b[1m sessions \x1b[0m\x1b[2m  ↑↓ navigate  enter select  esc cancel\x1b[0m\n\n");
+
+            if (scroll_top > selected) scroll_top = selected;
+            if (selected >= scroll_top + visible) scroll_top = selected - visible + 1;
+
+            for (int i = scroll_top; i < scroll_top + visible && i < count; i++) {
+                if (i == selected) {
+                    RGB accent = state->lantern->config.accent;
+                    str_appendf(&screen, "\x1b[38;2;%d;%d;%dm  > %s\x1b[0m\n",
+                                accent.r, accent.g, accent.b, labels[i]);
+                } else {
+                    str_appendf(&screen, "    \x1b[2m%s\x1b[0m\n", labels[i]);
+                }
+            }
+
+            if (count > visible) {
+                str_appendf(&screen, "\n\x1b[2m  %d/%d\x1b[0m", selected + 1, count);
+            }
+
+            write(STDOUT_FILENO, screen.data, screen.len);
+            str_free(&screen);
+
+            /* Wait for input */
+            int ready = poll(&pfd2, 1, 50);
+            if (ready > 0 && (pfd2.revents & POLLIN)) {
+                char ch[32];
+                ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
+                if (n <= 0) continue;
+                ch[n] = '\0';
+
+                ParsedKey key = key_parse(ch, (int)n);
+                if (key_matches(&key, "up") || key_matches(&key, "scrollup")) {
+                    if (selected > 0) selected--;
+                } else if (key_matches(&key, "down") || key_matches(&key, "scrolldown")) {
+                    if (selected < count - 1) selected++;
+                } else if (key_matches(&key, "enter")) {
+                    picked = true;
+                } else if (key_matches(&key, "escape") || key_matches(&key, "ctrl+c")) {
+                    cancelled = true;
+                } else if (key_matches(&key, "pageup")) {
+                    selected -= visible;
+                    if (selected < 0) selected = 0;
+                } else if (key_matches(&key, "pagedown")) {
+                    selected += visible;
+                    if (selected >= count) selected = count - 1;
+                }
+            }
+        }
+
+        /* Restore TUI */
+        lantern_renderer_render_full(state->renderer);
+
+        if (picked && paths[selected]) {
+            /* Load selected session */
+            Session *new_session = session_load(paths[selected]);
+            if (new_session) {
+                pthread_mutex_lock(&state->mutex);
+                agent_state_reset(state->agent);
+                state->total_tokens = 0;
+                linestore_clear(state->store);
+                session_free(state->session);
+                state->session = new_session;
+                int restored = restore_session(state);
+
+                char lbuf[256];
+                snprintf(lbuf, sizeof(lbuf), "loaded %s (%d messages)",
+                         new_session->keyword ? new_session->keyword : new_session->session_id,
+                         restored);
+                cmd_output(state, lbuf);
+                state->renderer->auto_scroll = true;
+                state->needs_render = true;
+                pthread_mutex_unlock(&state->mutex);
+            } else {
+                pthread_mutex_lock(&state->mutex);
+                cmd_output(state, "failed to load session");
+                pthread_mutex_unlock(&state->mutex);
+            }
+        }
+
+        /* Cleanup */
+        for (int i = 0; i < count; i++) { free(paths[i]); free(labels[i]); }
         str_free(&output);
-        cmd_finish(state);
+        input_clear(state);
+        sync_input_to_renderer(state);
         return true;
     }
 

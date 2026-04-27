@@ -28,10 +28,13 @@ typedef struct {
 typedef struct {
     char *session_id;
     char *file_path;
+    char *sessions_dir;
     SessionEntry *entries;
     int entry_count;
     int entry_capacity;
     char *leaf_id;
+    char *keyword;
+    int64_t created_at;
     int version;
 } Session;
 
