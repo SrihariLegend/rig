@@ -157,7 +157,7 @@ void linestore_reflow(LineStore *ls) {
     ls->total_screen_rows = 0;
     for (int i = 0; i < ls->count; i++) {
         StoreLine *line = &ls->lines[i];
-        int effective_width = ls->content_width - line->indent;
+        int effective_width = ls->content_width - 4 - (line->indent & 0x7FFF);
         if (effective_width < 10) effective_width = 10;
         line->wrap_count = compute_wrap_count(line->raw_text, effective_width);
         ls->total_screen_rows += line->wrap_count;
@@ -188,7 +188,7 @@ void linestore_add_user_text(LineStore *ls, const char *text) {
     if (!line) return;
     line->type = LINE_USER_TEXT;
     line->raw_text = strdup(text);
-    int ew = ls->content_width - 4;
+    int ew = ls->content_width - 4 - 2;
     if (ew < 10) ew = 10;
     line->wrap_count = compute_wrap_count(line->raw_text, ew);
     ls->total_screen_rows += line->wrap_count;
@@ -244,7 +244,7 @@ void linestore_append_assistant_text(LineStore *ls, const char *text) {
         if (!line) return;
         line->type = LINE_ASSISTANT_TEXT;
         line->raw_text = line_len > 0 ? strndup(p, line_len) : strdup("");
-        int ew = ls->content_width;
+        int ew = ls->content_width - 4;
         if (ew < 10) ew = 10;
         line->wrap_count = compute_wrap_count(line->raw_text, ew);
         ls->total_screen_rows += line->wrap_count;

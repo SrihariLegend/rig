@@ -107,7 +107,7 @@ static void flush_line(MdState *st, LineType type, int indent, int heading_level
     line->wrap_count = 1;
 
     if (line->raw_text) {
-        int ew = st->ls->content_width - indent;
+        int ew = st->ls->content_width - 4 - indent;
         if (ew < 10) ew = 10;
         int vis = unicode_display_width(line->raw_text);
         if (vis > ew) {

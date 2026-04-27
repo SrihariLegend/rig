@@ -108,6 +108,19 @@ static void render_line_content(const LanternRenderer *r, const StoreLine *line,
     case LINE_BLANK:
         break;
 
+    case LINE_USER_TEXT: {
+        RGB accent = lantern_accent_at(l, distance);
+        lantern_emit_fg(l, &accent, fg_buf, sizeof(fg_buf));
+        terminal_write_str(fg_buf);
+        terminal_write_str("> ");
+        terminal_write_str(reset_buf);
+        lantern_emit_fg(l, base_color, fg_buf, sizeof(fg_buf));
+        terminal_write_str(fg_buf);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(reset_buf);
+        break;
+    }
+
     case LINE_SYSTEM: {
         RGB dim = rgb_lerp(*base_color, (RGB){40, 40, 40}, 0.5f);
         lantern_emit_fg(l, &dim, fg_buf, sizeof(fg_buf));
@@ -446,13 +459,21 @@ void lantern_renderer_render(LanternRenderer *r) {
     terminal_clear_line();
     emit_padding(r->left_margin + 2);
 
-    if (r->input_line && r->input_line[0]) {
+    {
         char fg_buf[32];
-        RGB warm = r->lantern->config.warmth;
-        lantern_emit_fg(r->lantern, &warm, fg_buf, sizeof(fg_buf));
+        RGB accent = r->lantern->config.accent;
+        lantern_emit_fg(r->lantern, &accent, fg_buf, sizeof(fg_buf));
         terminal_write_str(fg_buf);
-        terminal_write_str(r->input_line);
+        terminal_write_str("> ");
         terminal_write_str("\x1b[0m");
+
+        if (r->input_line && r->input_line[0]) {
+            RGB warm = r->lantern->config.warmth;
+            lantern_emit_fg(r->lantern, &warm, fg_buf, sizeof(fg_buf));
+            terminal_write_str(fg_buf);
+            terminal_write_str(r->input_line);
+            terminal_write_str("\x1b[0m");
+        }
     }
 
     /* Scroll hint */
@@ -468,8 +489,8 @@ void lantern_renderer_render(LanternRenderer *r) {
         terminal_write_str("\x1b[0m");
     }
 
-    /* Position cursor at input */
-    int cursor_col = r->left_margin + 2;
+    /* Position cursor at input (after "> " prefix) */
+    int cursor_col = r->left_margin + 2 + 2;
     if (r->input_line) cursor_col += unicode_display_width(r->input_line);
     terminal_move_cursor(viewport_height, cursor_col + 1);
     terminal_show_cursor();
