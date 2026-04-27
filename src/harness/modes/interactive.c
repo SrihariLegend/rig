@@ -11,6 +11,7 @@
 #include "harness/turnlog.h"
 #include "harness/settings.h"
 #include "harness/extensions/lua_ext.h"
+#include "harness/permissions.h"
 #include "harness/ext_build_prompt.h"
 #include "ai/registry.h"
 #include "tui/lantern.h"
@@ -69,6 +70,7 @@ typedef struct {
     char cwd[4096];
     char *api_key;
     TurnLog *turnlog;
+    PermissionSet *perms;
 
     /* Input history */
     char **history;
@@ -598,13 +600,40 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
 
 /* ---- Submit ---- */
 
+/* Extract a human-readable argument summary for permission display + pattern matching */
+static char *tool_arg_summary(const char *name, cJSON *args) {
+    if (!args) return NULL;
+
+    if (strcmp(name, "bash") == 0) {
+        cJSON *cmd = cJSON_GetObjectItem(args, "command");
+        return (cmd && cJSON_IsString(cmd)) ? strdup(cmd->valuestring) : NULL;
+    }
+    if (strcmp(name, "read") == 0 || strcmp(name, "write") == 0 || strcmp(name, "edit") == 0) {
+        cJSON *fp = cJSON_GetObjectItem(args, "file_path");
+        return (fp && cJSON_IsString(fp)) ? strdup(fp->valuestring) : NULL;
+    }
+    if (strcmp(name, "grep") == 0) {
+        cJSON *pat = cJSON_GetObjectItem(args, "pattern");
+        return (pat && cJSON_IsString(pat)) ? strdup(pat->valuestring) : NULL;
+    }
+    if (strcmp(name, "ls") == 0) {
+        cJSON *p = cJSON_GetObjectItem(args, "path");
+        return (p && cJSON_IsString(p)) ? strdup(p->valuestring) : NULL;
+    }
+
+    /* Extension tools: stringify first string arg */
+    cJSON *child = args->child;
+    while (child) {
+        if (cJSON_IsString(child)) return strdup(child->valuestring);
+        child = child->next;
+    }
+    return NULL;
+}
+
 static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result) {
-    (void)result;
-    InteractiveState *state = NULL;
-    /* ctx doesn't carry userdata, so we use a static pointer set before each agent_prompt */
     extern InteractiveState *g_interactive_state;
-    state = g_interactive_state;
-    if (!state || !state->turnlog) return 0;
+    InteractiveState *state = g_interactive_state;
+    if (!state) return 0;
 
     const char *name = ctx->tool_call ? ctx->tool_call->tool_call.name : NULL;
     if (!name) return 0;
@@ -612,16 +641,137 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
     /* Set thread-local for Lua tool bridge */
     lua_tool_current_name = name;
 
-    if (strcmp(name, "write") == 0 || strcmp(name, "edit") == 0) {
-        const char *path = NULL;
-        if (ctx->args) {
-            cJSON *fp = cJSON_GetObjectItem(ctx->args, "file_path");
-            if (fp && cJSON_IsString(fp)) path = fp->valuestring;
-        }
-        if (path) {
-            turnlog_snapshot_file(state->turnlog, path);
+    /* Snapshot files before write/edit */
+    if (state->turnlog) {
+        if (strcmp(name, "write") == 0 || strcmp(name, "edit") == 0) {
+            cJSON *fp = ctx->args ? cJSON_GetObjectItem(ctx->args, "file_path") : NULL;
+            if (fp && cJSON_IsString(fp)) {
+                turnlog_snapshot_file(state->turnlog, fp->valuestring);
+            }
         }
     }
+
+    /* Permission check */
+    if (state->perms) {
+        char *summary = tool_arg_summary(name, ctx->args);
+        bool trusted = permissions_check(state->perms, name, summary);
+
+        if (!trusted) {
+            /* Show tool call and ask for permission */
+            char *desc = permissions_describe_call(name, summary);
+
+            pthread_mutex_lock(&state->mutex);
+            linestore_add_system(state->store, desc);
+            linestore_add_system(state->store, "allow? [y]es / [n]o / [t]rust tool / [a]llow pattern / [!] trust all");
+            state->needs_render = true;
+            pthread_mutex_unlock(&state->mutex);
+
+            free(desc);
+
+            /* Poll for user response */
+            struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+            char response = 0;
+            while (!response) {
+                int ready = poll(&pfd, 1, 100);
+                if (ready > 0 && (pfd.revents & POLLIN)) {
+                    char ch[16];
+                    ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
+                    if (n > 0) {
+                        switch (ch[0]) {
+                        case 'y': case 'Y': case '\r': case '\n':
+                            response = 'y';
+                            break;
+                        case 'n': case 'N': case '\x1b': case '\x03':
+                            response = 'n';
+                            break;
+                        case 't': case 'T':
+                            /* Trust this entire tool */
+                            permissions_trust(state->perms, name, NULL);
+                            response = 'y';
+                            pthread_mutex_lock(&state->mutex);
+                            {
+                                char tbuf[128];
+                                snprintf(tbuf, sizeof(tbuf), "trusted: %s (all)", name);
+                                linestore_add_system(state->store, tbuf);
+                                state->needs_render = true;
+                            }
+                            pthread_mutex_unlock(&state->mutex);
+                            break;
+                        case 'a': case 'A':
+                            /* Trust this tool with pattern */
+                            if (summary) {
+                                /* For bash: trust "command_prefix *" */
+                                char *space = strchr(summary, ' ');
+                                if (space && strcmp(name, "bash") == 0) {
+                                    size_t prefix_len = (size_t)(space - summary);
+                                    char *pattern = malloc(prefix_len + 3);
+                                    memcpy(pattern, summary, prefix_len);
+                                    pattern[prefix_len] = ' ';
+                                    pattern[prefix_len + 1] = '*';
+                                    pattern[prefix_len + 2] = '\0';
+                                    permissions_trust(state->perms, name, pattern);
+                                    pthread_mutex_lock(&state->mutex);
+                                    {
+                                        char tbuf[256];
+                                        snprintf(tbuf, sizeof(tbuf), "trusted: %s '%s'", name, pattern);
+                                        linestore_add_system(state->store, tbuf);
+                                        state->needs_render = true;
+                                    }
+                                    pthread_mutex_unlock(&state->mutex);
+                                    free(pattern);
+                                } else {
+                                    /* For file tools: trust exact path */
+                                    permissions_trust(state->perms, name, summary);
+                                    pthread_mutex_lock(&state->mutex);
+                                    {
+                                        char tbuf[256];
+                                        snprintf(tbuf, sizeof(tbuf), "trusted: %s '%s'", name, summary);
+                                        linestore_add_system(state->store, tbuf);
+                                        state->needs_render = true;
+                                    }
+                                    pthread_mutex_unlock(&state->mutex);
+                                }
+                            } else {
+                                /* No summary — fall back to trusting entire tool */
+                                permissions_trust(state->perms, name, NULL);
+                            }
+                            response = 'y';
+                            break;
+                        case '!':
+                            /* Yolo mode — trust everything */
+                            permissions_trust(state->perms, "*", NULL);
+                            response = 'y';
+                            pthread_mutex_lock(&state->mutex);
+                            linestore_add_system(state->store, "trusted: ALL tools");
+                            state->needs_render = true;
+                            pthread_mutex_unlock(&state->mutex);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            free(summary);
+
+            if (response == 'n') {
+                result->block = true;
+                result->reason = strdup("denied by user");
+                pthread_mutex_lock(&state->mutex);
+                linestore_add_system(state->store, "denied");
+                state->needs_render = true;
+                pthread_mutex_unlock(&state->mutex);
+                return 0;
+            }
+
+            pthread_mutex_lock(&state->mutex);
+            linestore_add_system(state->store, "allowed");
+            state->needs_render = true;
+            pthread_mutex_unlock(&state->mutex);
+        } else {
+            free(summary);
+        }
+    }
+
     return 0;
 }
 
@@ -2024,6 +2174,12 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     settings_free(sm);
 
     state->turnlog = turnlog_create(proj_dir, snap_max);
+
+    /* Permissions — read-only tools auto-trusted */
+    state->perms = permissions_create();
+    permissions_trust(state->perms, "read", NULL);
+    permissions_trust(state->perms, "grep", NULL);
+    permissions_trust(state->perms, "ls", NULL);
     if (state->turnlog && file_max > 0) {
         state->turnlog->file_max_bytes = file_max;
     }
@@ -2259,6 +2415,7 @@ int interactive_mode_start(PiInstance *pi, const char *session_id,
     history_free(state);
     free(state->input_buf);
     free(state->tools);
+    if (state->perms) permissions_free(state->perms);
     free(state->api_key);
     free(state->last_prompt);
     /* Flush any in-memory turn to disk before exit */

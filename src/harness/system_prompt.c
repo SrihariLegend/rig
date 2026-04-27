@@ -1,8 +1,52 @@
 #include "system_prompt.h"
 #include "util/str.h"
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <stdio.h>
 #include <unistd.h>
+
+static const char **ext_prompt_keys = NULL;
+static const char **ext_prompt_vals = NULL;
+static int ext_prompt_count = 0;
+static int ext_prompt_cap = 0;
+
+void system_prompt_add_fragment(const char *key, const char *text) {
+    if (!key || !text) return;
+
+    /* Replace existing */
+    for (int i = 0; i < ext_prompt_count; i++) {
+        if (strcmp(ext_prompt_keys[i], key) == 0) {
+            free((void *)ext_prompt_vals[i]);
+            ext_prompt_vals[i] = strdup(text);
+            return;
+        }
+    }
+
+    if (ext_prompt_count >= ext_prompt_cap) {
+        int new_cap = ext_prompt_cap == 0 ? 8 : ext_prompt_cap * 2;
+        ext_prompt_keys = realloc(ext_prompt_keys, (size_t)new_cap * sizeof(char *));
+        ext_prompt_vals = realloc(ext_prompt_vals, (size_t)new_cap * sizeof(char *));
+        ext_prompt_cap = new_cap;
+    }
+
+    ext_prompt_keys[ext_prompt_count] = strdup(key);
+    ext_prompt_vals[ext_prompt_count] = strdup(text);
+    ext_prompt_count++;
+}
+
+void system_prompt_remove_fragment(const char *key) {
+    for (int i = 0; i < ext_prompt_count; i++) {
+        if (strcmp(ext_prompt_keys[i], key) == 0) {
+            free((void *)ext_prompt_keys[i]);
+            free((void *)ext_prompt_vals[i]);
+            ext_prompt_keys[i] = ext_prompt_keys[ext_prompt_count - 1];
+            ext_prompt_vals[i] = ext_prompt_vals[ext_prompt_count - 1];
+            ext_prompt_count--;
+            return;
+        }
+    }
+}
 
 char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd) {
     Str s = str_new(16384);
@@ -169,6 +213,14 @@ char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd) {
         "3. **Execute** — make changes incrementally. Test after each significant change.\n"
         "4. **Verify** — run tests, check for errors, confirm the change works.\n"
     );
+
+    /* Extension-injected prompt fragments */
+    if (ext_prompt_count > 0) {
+        str_append(&s, "\n# Extension Context\n\n");
+        for (int i = 0; i < ext_prompt_count; i++) {
+            str_appendf(&s, "## %s\n%s\n\n", ext_prompt_keys[i], ext_prompt_vals[i]);
+        }
+    }
 
     return str_take(&s);
 }

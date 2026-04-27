@@ -32,7 +32,8 @@ HARNESS_SRC = src/harness/config.c src/harness/auth.c src/harness/system_prompt.
               src/harness/session.c src/harness/skills.c src/harness/prompts.c \
               src/harness/themes.c src/harness/packages.c src/harness/settings.c \
               src/harness/slash_commands.c src/harness/output_guard.c \
-              src/harness/path_sandbox.c src/harness/signals.c \
+              src/harness/path_sandbox.c src/harness/permissions.c \
+              src/harness/signals.c \
               src/harness/tools/bash_tool.c src/harness/tools/read_tool.c \
               src/harness/tools/write_tool.c src/harness/tools/edit_tool.c \
               src/harness/tools/grep_tool.c src/harness/tools/ls_tool.c \

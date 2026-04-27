@@ -5,6 +5,7 @@
 #include "util/fs.h"
 #include "agent/agent.h"
 #include "ai/registry.h"
+#include "harness/system_prompt.h"
 #include "tui/linestore.h"
 #include "cjson/cJSON.h"
 
@@ -669,6 +670,16 @@ static int lua_rig_set(lua_State *L) {
         if (strcmp(key, "clear") == 0) {
             agent_state_reset(ctx->agent);
             return 0;
+        }
+        return 0;
+    }
+
+    if (strcmp(ns, "prompts") == 0) {
+        if (lua_isnil(L, 3)) {
+            system_prompt_remove_fragment(key);
+        } else {
+            const char *text = luaL_checkstring(L, 3);
+            system_prompt_add_fragment(key, text);
         }
         return 0;
     }
