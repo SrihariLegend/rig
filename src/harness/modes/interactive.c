@@ -289,6 +289,7 @@ static void handle_submit(InteractiveState *state) {
     }
 
     state->phase = ISTATE_STREAMING;
+    state->renderer->is_streaming = true;
 
     typedef struct { InteractiveState *state; char *prompt; } AgentThreadArg;
     AgentThreadArg *arg = malloc(sizeof(AgentThreadArg));
@@ -317,6 +318,7 @@ static void *agent_thread_fn(void *raw_arg) {
 
     state->phase = ISTATE_IDLE;
     pthread_mutex_lock(&state->mutex);
+    state->renderer->is_streaming = false;
     state->needs_render = true;
     pthread_mutex_unlock(&state->mutex);
 
@@ -349,6 +351,72 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
     }
     if (key_matches(key, "enter")) {
         if (state->phase == ISTATE_IDLE) {
+            /* Check for slash commands */
+            if (state->input_len > 0 && state->input_buf[0] == '/') {
+                const char *cmd = state->input_buf + 1;
+                if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0 || strcmp(cmd, "q") == 0) {
+                    state->running = false;
+                    return true;
+                }
+                if (strcmp(cmd, "clear") == 0) {
+                    pthread_mutex_lock(&state->mutex);
+                    while (state->store->count > 0) {
+                        state->store->count--;
+                        state->store->total_screen_rows -= state->store->lines[state->store->count].wrap_count;
+                        free(state->store->lines[state->store->count].raw_text);
+                        free(state->store->lines[state->store->count].spans);
+                        state->store->lines[state->store->count].raw_text = NULL;
+                        state->store->lines[state->store->count].spans = NULL;
+                    }
+                    state->store->total_screen_rows = 0;
+                    state->renderer->scroll_offset = 0;
+                    state->renderer->auto_scroll = true;
+                    state->needs_render = true;
+                    pthread_mutex_unlock(&state->mutex);
+                    input_clear(state);
+                    sync_input_to_renderer(state);
+                    return true;
+                }
+                if (strcmp(cmd, "model") == 0) {
+                    pthread_mutex_lock(&state->mutex);
+                    const char *name = state->model ? state->model->name : "none";
+                    const char *id = state->model ? state->model->id : "none";
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "model: %s (%s)", name, id);
+                    linestore_add_system(state->store, buf);
+                    if (state->total_tokens > 0) {
+                        snprintf(buf, sizeof(buf), "tokens used: %d", state->total_tokens);
+                        linestore_add_system(state->store, buf);
+                    }
+                    state->needs_render = true;
+                    pthread_mutex_unlock(&state->mutex);
+                    input_clear(state);
+                    sync_input_to_renderer(state);
+                    return true;
+                }
+                if (strcmp(cmd, "help") == 0) {
+                    pthread_mutex_lock(&state->mutex);
+                    linestore_add_system(state->store, "/help    — show this");
+                    linestore_add_system(state->store, "/model   — show current model");
+                    linestore_add_system(state->store, "/clear   — clear conversation");
+                    linestore_add_system(state->store, "/exit    — quit (/q also works)");
+                    state->needs_render = true;
+                    pthread_mutex_unlock(&state->mutex);
+                    input_clear(state);
+                    sync_input_to_renderer(state);
+                    return true;
+                }
+                /* Unknown command */
+                pthread_mutex_lock(&state->mutex);
+                char buf[128];
+                snprintf(buf, sizeof(buf), "unknown command: %s", state->input_buf);
+                linestore_add_error(state->store, buf);
+                state->needs_render = true;
+                pthread_mutex_unlock(&state->mutex);
+                input_clear(state);
+                sync_input_to_renderer(state);
+                return true;
+            }
             handle_submit(state);
         }
         return true;

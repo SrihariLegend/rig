@@ -426,7 +426,7 @@ void lantern_renderer_render(LanternRenderer *r) {
         int avail_width = r->content_width - 4 - line_indent;
         if (avail_width < 10) avail_width = 10;
 
-        if (ref.wrap_offset == 0 && line->wrap_count <= 1) {
+        if (ref.wrap_offset == 0) {
             render_line_content(r, line, &base_color, distance_from_center, avail_width);
         } else if (line->raw_text) {
             /* Word-wrap aware rendering for wrapped lines */
@@ -482,18 +482,34 @@ void lantern_renderer_render(LanternRenderer *r) {
 
     {
         char fg_buf[32];
-        RGB accent = r->lantern->config.accent;
-        lantern_emit_fg(r->lantern, &accent, fg_buf, sizeof(fg_buf));
-        terminal_write_str(fg_buf);
-        terminal_write_str("> ");
-        terminal_write_str("\x1b[0m");
-
-        if (r->input_line && r->input_line[0]) {
-            RGB warm = r->lantern->config.warmth;
-            lantern_emit_fg(r->lantern, &warm, fg_buf, sizeof(fg_buf));
+        if (r->is_streaming) {
+            RGB accent = r->lantern->config.accent;
+            lantern_emit_fg(r->lantern, &accent, fg_buf, sizeof(fg_buf));
             terminal_write_str(fg_buf);
-            terminal_write_str(r->input_line);
+            terminal_write_str(SPINNER_FRAMES[r->spinner_frame % SPINNER_COUNT]);
             terminal_write_str("\x1b[0m");
+            RGB dim = rgb_lerp(r->lantern->config.warmth, (RGB){40,40,40}, 0.5f);
+            lantern_emit_fg(r->lantern, &dim, fg_buf, sizeof(fg_buf));
+            terminal_write_str(fg_buf);
+            if (r->tool_breathing && r->spinner_tool_name) {
+                terminal_write_str(" ");
+                terminal_write_str(r->spinner_tool_name);
+            }
+            terminal_write_str("\x1b[0m");
+        } else {
+            RGB accent = r->lantern->config.accent;
+            lantern_emit_fg(r->lantern, &accent, fg_buf, sizeof(fg_buf));
+            terminal_write_str(fg_buf);
+            terminal_write_str("> ");
+            terminal_write_str("\x1b[0m");
+
+            if (r->input_line && r->input_line[0]) {
+                RGB warm = r->lantern->config.warmth;
+                lantern_emit_fg(r->lantern, &warm, fg_buf, sizeof(fg_buf));
+                terminal_write_str(fg_buf);
+                terminal_write_str(r->input_line);
+                terminal_write_str("\x1b[0m");
+            }
         }
     }
 

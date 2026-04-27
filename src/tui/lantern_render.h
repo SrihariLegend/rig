@@ -23,6 +23,7 @@ typedef struct {
     bool show_scroll_hint;
 
     bool tool_breathing;
+    bool is_streaming;
     int spinner_frame;
     char *spinner_tool_name;
 } LanternRenderer;
