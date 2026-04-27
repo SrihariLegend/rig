@@ -67,7 +67,10 @@ char *system_prompt_build(const Tool *tools, int tool_count, const char *cwd) {
         "code, managing files, running commands, and navigating codebases.\n\n"
         "You have direct access to the user's filesystem and shell through tools. "
         "Use them. Never guess what a file contains or what a command outputs — "
-        "always check.\n\n");
+        "always check.\n\n"
+        "You have full access to the conversation history within this session. "
+        "All previous user messages and your responses are visible to you. "
+        "If the user asks about something they said earlier, refer back to it.\n\n");
 
     /* ---- Environment ---- */
 
