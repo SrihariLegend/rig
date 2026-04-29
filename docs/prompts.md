@@ -73,6 +73,6 @@ Templates are loaded from configured prompt directories. Only `.md` files direct
 ## Examples
 
 See [`examples/prompts/`](../examples/prompts/) for working templates:
-- `explain.md` — Explain a concept in detail
-- `review-code.md` — Code review with specific focus areas
-- `summarize.md` — Concise summaries with length limits
+- `explain.md` - Explain a concept in detail
+- `review-code.md` - Code review with specific focus areas
+- `summarize.md` - Concise summaries with length limits

@@ -8,7 +8,7 @@ A coding agent that runs anywhere, connects to everything, and gets out of your 
 
 **~23K lines of C. 566KB binary. Zero runtime dependencies. Every major LLM provider. Extensible via Lua.**
 
-Rig is not another wrapper around an API. It's a from-scratch engine for AI-assisted coding — built to be the layer that everything else runs on.
+Rig is a coding agent written in C. One binary, no runtime deps, works with every major LLM provider.
 
 ```
 curl -fsSL https://raw.githubusercontent.com/SrihariLegend/rig/main/install.sh | sh
@@ -25,10 +25,10 @@ The current generation of AI coding tools ships as Electron apps, Python package
 Rig takes a different position:
 
 - **Single binary.** No Python. No Node. No Docker. No runtime. Copy it, run it.
-- **Any provider.** Anthropic, OpenAI, Google, Bedrock, Mistral — same interface, same tools, switch with a flag.
-- **Fast.** Compiled C. Sub-millisecond startup. Memory measured in kilobytes, not gigabytes.
+- **Any provider.** Anthropic, OpenAI, Google, Bedrock, Mistral. Same interface, same tools, switch with a flag.
+- **Fast.** Compiled C. Starts in under a millisecond. Memory measured in kilobytes, not gigabytes.
 - **Extensible.** Lua extensions with 8 primitives that cover every possible integration. No SDK to install, no build step.
-- **Infrastructure, not product.** Rig is an engine. Build your own AI coding experience on top — editor plugins, CI pipelines, custom agents, internal tools.
+- **Infrastructure, not product.** Rig is an engine. Build your own AI coding experience on top: editor plugins, CI pipelines, custom agents, internal tools.
 
 ```
 $ time rig -p "What is 2+2?"
@@ -69,18 +69,18 @@ The agent ships with 7 tools that cover the full coding workflow:
 | `ls` | List directory contents |
 | `introspect` | Query Rig's own state (tools, config, extensions) |
 
-Every tool has a permission system. Rig asks before writing to disk or running commands. Trust rules are configurable per-tool, per-path.
+Every tool has a permission system. Rig asks before writing to disk or running commands. Trust rules are configurable per tool, per path.
 
 ### Terminal UI
 
-A full TUI with a spatial lighting model — not just colored text:
+A full TUI with a spatial lighting model:
 
-- **Lantern rendering** — warm-to-cool color gradient that fades with distance from the cursor, giving a sense of focus and depth
-- **Markdown rendering** — code blocks, bold, italic, lists, headings — rendered inline
-- **Scrollback** — scroll through conversation history with mouse wheel, Page Up/Down, or vim keys
-- **Themes** — JSON color schemes with hot reload via `/theme`
-- **Spinner** — visual feedback during tool execution
-- **Responsive** — handles terminal resize, adapts layout to width
+- **Lantern rendering:** warm to cool color gradient that fades with distance from the cursor
+- **Markdown rendering:** code blocks, bold, italic, lists, headings, rendered inline
+- **Scrollback:** scroll through conversation history with mouse wheel, Page Up/Down, or vim keys
+- **Themes:** JSON color schemes with hot reload via `/theme`
+- **Spinner:** visual feedback during tool execution
+- **Responsive:** handles terminal resize, adapts layout to width
 
 ### Sessions
 
@@ -97,17 +97,17 @@ Or browse and pick interactively with `/sessions`.
 | Mode | Use Case | Invocation |
 |------|----------|------------|
 | **Interactive** | TUI conversation | `rig` |
-| **Print** | Single-shot, stdout | `rig -p "prompt"` |
+| **Print** | One off, stdout | `rig -p "prompt"` |
 | **JSON** | Structured event output | `rig --json -p "prompt"` |
 | **RPC** | Editor/tool integration | Internal |
 
-Pipe-friendly. Composable. Script it, embed it, build on it.
+Works with pipes. Script it, embed it, build on it.
 
 ---
 
 ## Lua Extensions
 
-Rig exposes **8 primitives** to Lua — mathematically proven to be the minimal complete set for unbounded extensibility:
+Rig exposes **8 primitives** to Lua, mathematically proven to be the minimal complete set for unbounded extensibility:
 
 | Primitive | What it does |
 |-----------|-------------|
@@ -161,12 +161,12 @@ Full documentation: [`docs/extensions.md`](docs/extensions.md)
 
 | Document | What it covers |
 |----------|---------------|
-| [`docs/extensions.md`](docs/extensions.md) | Writing Lua extensions — the 8 primitives, namespaces, sandbox, examples |
+| [`docs/extensions.md`](docs/extensions.md) | Writing Lua extensions: the 8 primitives, namespaces, sandbox, examples |
 | [`docs/configuration.md`](docs/configuration.md) | Settings layers, permissions, trust rules, directory layout |
 | [`docs/sessions.md`](docs/sessions.md) | Session persistence, branching, context reconstruction |
-| [`docs/workflows.md`](docs/workflows.md) | YAML/JSON workflow engine — 16 step types, expressions, parallel execution |
-| [`docs/themes.md`](docs/themes.md) | Theme format — variables, 51 color tokens, examples |
-| [`docs/prompts.md`](docs/prompts.md) | Prompt templates — frontmatter, variable substitution syntax |
+| [`docs/workflows.md`](docs/workflows.md) | YAML/JSON workflow engine: 16 step types, expressions, parallel execution |
+| [`docs/themes.md`](docs/themes.md) | Theme format: variables, 51 color tokens, examples |
+| [`docs/prompts.md`](docs/prompts.md) | Prompt templates: frontmatter, variable substitution syntax |
 
 ---
 
@@ -201,7 +201,7 @@ The build vendors its own Lua 5.4, cJSON, libyaml, and md4c. No package manager 
 
 **Build time:** C compiler, libcurl-dev, libssl-dev, zlib-dev
 
-**Runtime:** libcurl, libssl, zlib — present on virtually every Linux system
+**Runtime:** libcurl, libssl, zlib (present on virtually every Linux system)
 
 **Vendored (zero install):** Lua 5.4, cJSON, libyaml, md4c
 
@@ -247,14 +247,14 @@ src/
 
 ## Vision
 
-AI coding tools shouldn't be products — they should be infrastructure.
+AI coding tools should be infrastructure, not products.
 
 Rig is the engine. The universal layer between LLM providers and whatever you want to build:
 
 - **Editor plugins** that don't ship their own runtime
 - **CI/CD agents** that run in containers without installing Node
 - **Internal tools** that connect to your company's LLM endpoint
-- **Custom agents** with domain-specific tools and workflows
+- **Custom agents** with tools and workflows specific to your domain
 - **Community extensions** that install with a single file copy
 
 The binary is the platform. Lua is the extension language. The protocol is simple. Build whatever you want.

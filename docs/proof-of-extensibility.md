@@ -2,7 +2,7 @@
 
 ## Overview
 
-Rig exposes 8 primitives to Lua extensions. This document proves — under explicitly stated architectural assumptions — that these 8 are sufficient for unbounded extensibility and that none can be removed without losing capability or violating operational requirements.
+Rig exposes 8 primitives to Lua extensions. This document proves - under explicitly stated architectural assumptions - that these 8 are sufficient for unbounded extensibility and that none can be removed without losing capability or violating operational requirements.
 
 The proof has a formally rigorous core (Theorems 1 and 2) that depends on a clearly defined abstract model, plus a practical extension (the 8-primitive basis) justified by operational constraints. Assumptions are stated as hypotheses, not hidden.
 
@@ -10,7 +10,7 @@ The proof has a formally rigorous core (Theorems 1 and 2) that depends on a clea
 
 ## 1. Abstract Model of the Host
 
-We model the host agent as a **Turing machine with a fixed set of oracles** — abstract I/O interfaces with well-defined signatures and opaque implementations. The host's behavior is any sequence of internal computation steps interleaved with oracle calls. The host has no I/O capability outside its oracles.
+We model the host agent as a **Turing machine with a fixed set of oracles** - abstract I/O interfaces with well-defined signatures and opaque implementations. The host's behavior is any sequence of internal computation steps interleaved with oracle calls. The host has no I/O capability outside its oracles.
 
 ### 1.1 Oracle Definitions
 
@@ -35,7 +35,7 @@ This is an **architectural invariant** that Rig enforces by design, not a univer
 |------|-------------------|
 | LLM ≠ OS | API keys, provider protocols, and auth tokens are internal to the host process. Not exposed as environment variables, files, or arguments to child processes. `exec("curl ...")` cannot authenticate. |
 | UserOut ≠ OS | Terminal is in raw/alt-screen mode, owned by the host. Child processes spawned via `exec` get piped stdout, not access to the host's TUI renderer. |
-| UserIn ≠ OS | Host's key parser consumes stdin in raw mode. Extensions and child processes cannot `read(STDIN)` — the host is already reading it. |
+| UserIn ≠ OS | Host's key parser consumes stdin in raw mode. Extensions and child processes cannot `read(STDIN)` - the host is already reading it. |
 | ReadState ≠ OS | Agent internals (message list, tool registry, hook chain, event bus) exist only in host process memory. No file, socket, or shared memory exposes them. |
 | WriteState ≠ ReadState | Observing state does not grant mutation. Different operation, different permission boundary. |
 | ReadState ≠ WriteState | Mutating state does not reveal what the state currently is without a read. |
@@ -91,9 +91,9 @@ A single `get_state()` primitive can serve both: poll repeatedly for snapshots (
 ### 5.1 Why `get` Cannot Replace `hook`
 
 Polling `get_state()` to detect changes requires busy-waiting: `while true do check_state(); sleep(dt) end`. This is:
-- **Unbounded in CPU cost** — fires continuously even when nothing changes
-- **Lossy** — events between polls are missed (tool call that starts and ends within one poll interval)
-- **Latency-bound** — reaction time equals poll interval
+- **Unbounded in CPU cost** - fires continuously even when nothing changes
+- **Lossy** - events between polls are missed (tool call that starts and ends within one poll interval)
+- **Latency-bound** - reaction time equals poll interval
 
 A push-based `hook(event, fn)` primitive has O(0) cost when idle and O(1) latency on event. The two patterns are operationally non-equivalent.
 
@@ -102,8 +102,8 @@ A push-based `hook(event, fn)` primitive has O(0) cost when idle and O(1) latenc
 **Hypothesis II (Cold-Start Extensibility).** Extensions may be loaded at any point during the host's lifetime, not only at startup.
 
 Under Hypothesis II, an extension loaded mid-session cannot reconstruct the current state from future events alone. A `hook` registered after 50 messages have been exchanged will never see those 50 messages. The shadow-copy simulation is:
-- **Lossy** — misses all state set before hook registration
-- **Fragile** — any missed event permanently corrupts the shadow
+- **Lossy** - misses all state set before hook registration
+- **Fragile** - any missed event permanently corrupts the shadow
 
 A `get(ns, key)` primitive returns a faithful snapshot regardless of when the extension was loaded.
 
@@ -120,7 +120,7 @@ hook("tool_call", function(data)
     -- actual logic
 end)
 -- later:
-disabled = true  -- hook still fires, checks flag, returns
+disabled = true - -- hook still fires, checks flag, returns
 ```
 
 The hook remains in the chain permanently. After N disabled hooks, every event dispatches through N no-op callbacks. Under Hypothesis III, this violates resource cleanliness. A dedicated `unhook(handle)` removes the callback from the chain entirely: O(1) removal, zero residual cost.

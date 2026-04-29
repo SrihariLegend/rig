@@ -6,8 +6,8 @@ Rig uses two configuration directories:
 
 | Location | Purpose |
 |----------|---------|
-| `~/.rig/agent/` | Global config — settings, auth, models, sessions |
-| `.rig/` | Project config — per-project settings, extensions, themes, prompts |
+| `~/.rig/agent/` | Global config - settings, auth, models, sessions |
+| `.rig/` | Project config - per-project settings, extensions, themes, prompts |
 
 ### Global Paths
 
@@ -34,8 +34,8 @@ Project root is detected by walking up from the current directory looking for a 
 Settings are layered with increasing priority:
 
 1. **Built-in defaults** (lowest)
-2. **Global** — `~/.rig/agent/settings.json`
-3. **Project** — `.rig/settings.json`
+2. **Global** - `~/.rig/agent/settings.json`
+3. **Project** - `.rig/settings.json`
 4. **CLI flags** (highest)
 
 Higher layers override lower ones. Setting a value to `null` in a higher layer removes it from the merged result.

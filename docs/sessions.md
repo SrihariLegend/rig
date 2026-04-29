@@ -9,9 +9,9 @@ rig --session abc123    # resume a specific session
 ```
 
 In interactive mode:
-- `/session` — show current session info
-- `/sessions` — browse and pick a previous session
-- `/fork` — branch the conversation from a specific point
+- `/session` - show current session info
+- `/sessions` - browse and pick a previous session
+- `/fork` - branch the conversation from a specific point
 
 ## Storage Format
 
@@ -55,7 +55,7 @@ Each line in a session file is an entry with:
 
 Sessions form a linked chain via parent IDs. Branching works by moving the "leaf" pointer to a previous entry. New messages then chain from that point, creating a fork.
 
-The old branch remains intact in the file — both paths coexist.
+The old branch remains intact in the file - both paths coexist.
 
 ### Context Reconstruction
 

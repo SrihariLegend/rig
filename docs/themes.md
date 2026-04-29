@@ -84,6 +84,6 @@ Themes are JSON files that define color schemes for the TUI. Drop them in `.rig/
 ## Examples
 
 See [`examples/themes/`](../examples/themes/) for complete theme files:
-- `dark.json` — 256-color dark theme
-- `light.json` — 256-color light theme
-- `monokai.json` — RGB hex Monokai theme
+- `dark.json` - 256-color dark theme
+- `light.json` - 256-color light theme
+- `monokai.json` - RGB hex Monokai theme

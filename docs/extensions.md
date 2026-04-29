@@ -19,13 +19,13 @@ Restart rig, type `/greet`.
 | Primitive | What it does |
 |-----------|-------------|
 | `rig.exec(cmd, opts?)` | Run a shell command, get `{ok, stdout, exit_code, timed_out}` |
-| `rig.completion(params)` | Call the LLM — see [Completion](#completion) |
+| `rig.completion(params)` | Call the LLM - see [Completion](#completion) |
 | `rig.print(text, opts?)` | Show text in the TUI. `{error=true}` for error styling |
 | `rig.input(prompt)` | Block and read a line of user input |
-| `rig.hook(event, fn, priority?)` | React to events — returns a handle string |
+| `rig.hook(event, fn, priority?)` | React to events - returns a handle string |
 | `rig.unhook(handle)` | Remove a hook by handle |
-| `rig.get(ns, key?)` | Read state — see [Namespaces](#namespaces) |
-| `rig.set(ns, key, value)` | Write state — see [Namespaces](#namespaces) |
+| `rig.get(ns, key?)` | Read state - see [Namespaces](#namespaces) |
+| `rig.set(ns, key, value)` | Write state - see [Namespaces](#namespaces) |
 
 ## Namespaces
 
@@ -36,7 +36,7 @@ Restart rig, type `/greet`.
 | `"config"` | `nil` | Table: `{model, model_id, provider, context_window, cwd}` |
 | `"config"` | `"model"` | Model name string |
 | `"config"` | `"cwd"` | Working directory string |
-| `"messages"` | `nil` | Array of `{role, content}` — full conversation history |
+| `"messages"` | `nil` | Array of `{role, content}` - full conversation history |
 | `"messages"` | `"count"` | Number of messages |
 | `"tools"` | `nil` | Array of tool name strings |
 | `"tools"` | `"name"` | `{name, description}` for a specific tool |
@@ -51,7 +51,7 @@ Restart rig, type `/greet`.
 | `"tools"` | name | table | Register a tool the LLM can call |
 | `"tools"` | name | `nil` | Remove a tool |
 | `"messages"` | `"append"` | `{role, content}` | Add a message to history |
-| `"messages"` | `"clear"` | — | Clear conversation history |
+| `"messages"` | `"clear"` | - | Clear conversation history |
 | `"prompts"` | name | text | Inject a system prompt fragment |
 | `"prompts"` | name | `nil` | Remove a system prompt fragment |
 | `"settings"` | key | value | Store a setting |
@@ -62,7 +62,7 @@ Restart rig, type `/greet`.
 ```lua
 local h = rig.hook("tool_call", function(event, data)
     -- event = "tool_call", data = JSON table with call info
-    return true  -- allow (return false to block)
+    return true - -- allow (return false to block)
 end)
 
 -- later:
@@ -118,9 +118,9 @@ Extensions run in a **sandboxed** Lua environment. The following globals are **r
 |---------|-----|-------------|
 | `os` | No direct OS access | `rig.exec(cmd)` |
 | `io` | No file I/O | `rig.exec("cat file")` |
-| `loadfile` | No arbitrary code loading | — |
-| `dofile` | No arbitrary code loading | — |
-| `debug` | No debug introspection | — |
+| `loadfile` | No arbitrary code loading | - |
+| `dofile` | No arbitrary code loading | - |
+| `debug` | No debug introspection | - |
 
 This means **you cannot use**:
 - `os.tmpname()`, `os.remove()`, `os.execute()`
@@ -150,7 +150,7 @@ rig.exec("echo '" .. data .. "' | base64 -d > /path/to/file")
 **Always** redirect output and background it:
 
 ```lua
--- WRONG — will hang for 30 seconds:
+-- WRONG - will hang for 30 seconds:
 rig.exec("echo 'text' | xclip -selection clipboard")
 
 -- RIGHT:
@@ -161,23 +161,23 @@ This applies to any command that forks a persistent background process.
 
 ## `rig.exec()` Details
 
-- Runs via `/bin/sh -c "your command"` — shell features (pipes, redirects, `&&`) work
+- Runs via `/bin/sh -c "your command"` - shell features (pipes, redirects, `&&`) work
 - Default timeout: **30 seconds**
 - Override with `rig.exec(cmd, {timeout = 60000})` (milliseconds)
 - Returns `{ok, stdout, exit_code, timed_out}`
 - `stdout` contains **both stdout and stderr** merged together
-- The child process has **no stdin** — it cannot read interactive input
+- The child process has **no stdin** - it cannot read interactive input
 
 ### Common pitfalls
 
 ```lua
--- WRONG — hangs, command waits for stdin:
+-- WRONG - hangs, command waits for stdin:
 rig.exec("cat")
 
--- WRONG — hangs, background process holds pipes:
+-- WRONG - hangs, background process holds pipes:
 rig.exec("some-daemon start")
 
--- RIGHT — detach background processes:
+-- RIGHT - detach background processes:
 rig.exec("some-daemon start >/dev/null 2>&1 &")
 ```
 
@@ -256,7 +256,7 @@ rig.set("tools", "wc", {
 
 ```lua
 rig.hook("tool_call", function(event, data)
-    return true  -- allow all tool calls
+    return true - -- allow all tool calls
 end)
 
 -- add project info to every conversation

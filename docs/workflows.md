@@ -60,11 +60,11 @@ Every step can use these fields:
 |-------|---------|-------------|
 | `name` | required | Step identifier |
 | `type` | auto-detected | Step type |
-| `save_as` | — | Store output in a variable |
-| `condition` | — | Skip step if expression is empty/false |
-| `then` | — | Jump target if condition is true |
-| `else` | — | Jump target if condition is false |
-| `goto` | — | Loop back to a named step |
+| `save_as` | - | Store output in a variable |
+| `condition` | - | Skip step if expression is empty/false |
+| `then` | - | Jump target if condition is true |
+| `else` | - | Jump target if condition is false |
+| `goto` | - | Loop back to a named step |
 | `max_iterations` | 10 | Iteration limit for goto loops |
 | `max_retries` | 0 | Retry attempts on failure |
 | `retry_delay_ms` | 1000 | Delay between retries (milliseconds) |
