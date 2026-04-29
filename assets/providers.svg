@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 320" font-family="'JetBrains Mono','Fira Code','SF Mono','Cascadia Code',Consolas,monospace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1e2e"/>
+      <stop offset="100%" stop-color="#141821"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="840" height="320" rx="12" fill="url(#bg)"/>
+  <rect width="840" height="36" rx="12" fill="#0d1017"/>
+  <rect y="24" width="840" height="12" fill="#0d1017"/>
+  <circle cx="24" cy="18" r="6" fill="#ff5f57"/>
+  <circle cx="44" cy="18" r="6" fill="#febc2e"/>
+  <circle cx="64" cy="18" r="6" fill="#28c840"/>
+  <text x="420" y="22" text-anchor="middle" font-size="12" fill="#5a6078">/model list</text>
+
+  <text x="30" y="68" font-size="13">
+    <tspan fill="#5a9bcf">you</tspan>
+    <tspan fill="#8b92a8" dx="12">/model list</tspan>
+  </text>
+
+  <text x="30" y="100" font-size="13" fill="#c8a44e">rig</text>
+
+  <!-- Headers -->
+  <text y="126" font-size="11" fill="#5a6078">
+    <tspan x="75">Provider</tspan>
+    <tspan x="240">Models</tspan>
+    <tspan x="640">Auth</tspan>
+  </text>
+  <line x1="75" y1="134" x2="780" y2="134" stroke="#2a2f42" stroke-width="1"/>
+
+  <text y="154" font-size="12">
+    <tspan x="75" fill="#a8b4c4">Anthropic</tspan>
+    <tspan x="240" fill="#6b7394">Claude Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5</tspan>
+    <tspan x="640" fill="#3d4259">API key</tspan>
+  </text>
+  <text y="178" font-size="12">
+    <tspan x="75" fill="#a8b4c4">OpenAI</tspan>
+    <tspan x="240" fill="#6b7394">GPT-4o</tspan>
+    <tspan x="640" fill="#3d4259">API key</tspan>
+  </text>
+  <text y="202" font-size="12">
+    <tspan x="75" fill="#a8b4c4">Google</tspan>
+    <tspan x="240" fill="#6b7394">Via model registry</tspan>
+    <tspan x="640" fill="#3d4259">API key</tspan>
+  </text>
+  <text y="226" font-size="12">
+    <tspan x="75" fill="#a8b4c4">AWS Bedrock</tspan>
+    <tspan x="240" fill="#6b7394">Claude Opus 4.6, Sonnet 4.5, Haiku 4.5</tspan>
+    <tspan x="640" fill="#3d4259">AWS creds</tspan>
+  </text>
+  <text y="250" font-size="12">
+    <tspan x="75" fill="#a8b4c4">Mistral</tspan>
+    <tspan x="240" fill="#6b7394">Via model registry</tspan>
+    <tspan x="640" fill="#3d4259">API key</tspan>
+  </text>
+
+  <text x="75" y="280" font-size="11" fill="#3d4259">Also: DeepSeek, xAI, Groq, OpenRouter. Run `rig auth` to configure.</text>
+
+  <text x="30" y="308" font-size="13">
+    <tspan fill="#5a9bcf">you</tspan>
+    <tspan fill="#8b92a8" dx="12">/model sonnet</tspan>
+    <tspan fill="#3d4259" dx="24">Switched to claude-sonnet-4-6 (anthropic)</tspan>
+  </text>
+</svg>

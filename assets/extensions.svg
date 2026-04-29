@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 520" font-family="'JetBrains Mono','Fira Code','SF Mono','Cascadia Code',Consolas,monospace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1e2e"/>
+      <stop offset="100%" stop-color="#141821"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="840" height="520" rx="12" fill="url(#bg)"/>
+  <rect width="840" height="36" rx="12" fill="#0d1017"/>
+  <rect y="24" width="840" height="12" fill="#0d1017"/>
+  <circle cx="24" cy="18" r="6" fill="#ff5f57"/>
+  <circle cx="44" cy="18" r="6" fill="#febc2e"/>
+  <circle cx="64" cy="18" r="6" fill="#28c840"/>
+  <text x="420" y="22" text-anchor="middle" font-size="12" fill="#5a6078">lua extensions</text>
+
+  <text x="30" y="60" font-size="12" fill="#8b92a8">8 primitives. Mathematically proven minimal complete set.</text>
+
+  <!-- Primitives table -->
+  <text y="90" font-size="11" fill="#5a6078">
+    <tspan x="30">Primitive</tspan>
+    <tspan x="280">What it does</tspan>
+  </text>
+  <line x1="30" y1="98" x2="700" y2="98" stroke="#2a2f42" stroke-width="1"/>
+
+  <text y="118" font-size="12"><tspan x="30" fill="#c8a44e">rig.exec(cmd)</tspan><tspan x="280" fill="#6b7394">Run a shell command</tspan></text>
+  <text y="140" font-size="12"><tspan x="30" fill="#c8a44e">rig.completion(params)</tspan><tspan x="280" fill="#6b7394">Call any LLM</tspan></text>
+  <text y="162" font-size="12"><tspan x="30" fill="#c8a44e">rig.print(text)</tspan><tspan x="280" fill="#6b7394">Output to the TUI</tspan></text>
+  <text y="184" font-size="12"><tspan x="30" fill="#c8a44e">rig.input(prompt)</tspan><tspan x="280" fill="#6b7394">Read user input</tspan></text>
+  <text y="206" font-size="12"><tspan x="30" fill="#c8a44e">rig.hook(event, fn)</tspan><tspan x="280" fill="#6b7394">React to events</tspan></text>
+  <text y="228" font-size="12"><tspan x="30" fill="#c8a44e">rig.unhook(handle)</tspan><tspan x="280" fill="#6b7394">Remove a hook</tspan></text>
+  <text y="250" font-size="12"><tspan x="30" fill="#c8a44e">rig.get(ns, key)</tspan><tspan x="280" fill="#6b7394">Read state</tspan></text>
+  <text y="272" font-size="12"><tspan x="30" fill="#c8a44e">rig.set(ns, key, val)</tspan><tspan x="280" fill="#6b7394">Write state</tspan></text>
+
+  <text x="30" y="304" font-size="11" fill="#3d4259">Drop a .lua file in .rig/extensions/ and it loads on startup.</text>
+
+  <line x1="30" y1="320" x2="810" y2="320" stroke="#2a2f42" stroke-width="1"/>
+
+  <!-- Code example -->
+  <text x="30" y="346" font-size="11" fill="#5a6078">-- custom slash command</text>
+  <text x="30" y="366" font-size="12">
+    <tspan fill="#c8a44e">rig.set</tspan><tspan fill="#8b92a8">(</tspan><tspan fill="#8fbf7a">"commands"</tspan><tspan fill="#8b92a8">, </tspan><tspan fill="#8fbf7a">"deploy"</tspan><tspan fill="#8b92a8">, </tspan><tspan fill="#d4a0e0">function</tspan><tspan fill="#8b92a8">(args)</tspan>
+  </text>
+  <text x="30" y="386" font-size="12">
+    <tspan fill="#8b92a8">    </tspan><tspan fill="#d4a0e0">local</tspan><tspan fill="#8b92a8"> r = </tspan><tspan fill="#c8a44e">rig.exec</tspan><tspan fill="#8b92a8">(</tspan><tspan fill="#8fbf7a">"git push origin main"</tspan><tspan fill="#8b92a8">)</tspan>
+  </text>
+  <text x="30" y="406" font-size="12">
+    <tspan fill="#8b92a8">    </tspan><tspan fill="#c8a44e">rig.print</tspan><tspan fill="#8b92a8">(r.ok </tspan><tspan fill="#d4a0e0">and</tspan><tspan fill="#8b92a8"> </tspan><tspan fill="#8fbf7a">"deployed"</tspan><tspan fill="#8b92a8"> </tspan><tspan fill="#d4a0e0">or</tspan><tspan fill="#8b92a8"> </tspan><tspan fill="#8fbf7a">"failed: "</tspan><tspan fill="#8b92a8"> .. r.stdout)</tspan>
+  </text>
+  <text x="30" y="426" font-size="12" fill="#d4a0e0">end</text>
+  <text x="30" y="446" font-size="12" fill="#8b92a8">)</text>
+
+  <text x="30" y="478" font-size="11" fill="#5a6078">-- custom tool the LLM can call</text>
+  <text x="30" y="498" font-size="12">
+    <tspan fill="#c8a44e">rig.set</tspan><tspan fill="#8b92a8">(</tspan><tspan fill="#8fbf7a">"tools"</tspan><tspan fill="#8b92a8">, </tspan><tspan fill="#8fbf7a">"weather"</tspan><tspan fill="#8b92a8">, { ... })</tspan>
+  </text>
+</svg>
