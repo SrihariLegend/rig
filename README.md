@@ -43,13 +43,15 @@ real    0m0.8s   # that's network latency, not startup time
 
 Connect to any major provider with a single auth flow:
 
-| Provider | Models | Auth |
-|----------|--------|------|
-| Anthropic | Claude Opus, Sonnet, Haiku | `ANTHROPIC_API_KEY` |
-| OpenAI | GPT-4o, o1, o3 | `OPENAI_API_KEY` |
-| Google | Gemini 2.5 Pro, Flash | `GOOGLE_API_KEY` |
-| AWS Bedrock | Claude via AWS | `AWS_ACCESS_KEY_ID` |
-| Mistral | Mistral Large, Codestral | `MISTRAL_API_KEY` |
+| Provider | Built-in Models | Auth |
+|----------|----------------|------|
+| Anthropic | Claude Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5 | API key |
+| OpenAI | GPT-4o | API key |
+| Google | Via model registry | API key |
+| AWS Bedrock | Claude Opus 4.6, Sonnet 4.5, Haiku 4.5 | AWS credentials |
+| Mistral | Via model registry | API key |
+
+Additional providers: DeepSeek, xAI, Groq, OpenRouter. Run `rig auth` to configure.
 
 Switch models mid-conversation with `/model`. No restart, no config file.
 
@@ -155,6 +157,19 @@ Full documentation: [`docs/extensions.md`](docs/extensions.md)
 
 ---
 
+## Documentation
+
+| Document | What it covers |
+|----------|---------------|
+| [`docs/extensions.md`](docs/extensions.md) | Writing Lua extensions — the 8 primitives, namespaces, sandbox, examples |
+| [`docs/configuration.md`](docs/configuration.md) | Settings layers, permissions, trust rules, directory layout |
+| [`docs/sessions.md`](docs/sessions.md) | Session persistence, branching, context reconstruction |
+| [`docs/workflows.md`](docs/workflows.md) | YAML/JSON workflow engine — 16 step types, expressions, parallel execution |
+| [`docs/themes.md`](docs/themes.md) | Theme format — variables, 51 color tokens, examples |
+| [`docs/prompts.md`](docs/prompts.md) | Prompt templates — frontmatter, variable substitution syntax |
+
+---
+
 ## Install
 
 ### Quick Install
@@ -250,7 +265,7 @@ The binary is the platform. Lua is the extension language. The protocol is simpl
 
 ```bash
 make          # build
-make test     # run all tests (650 tests)
+make test     # run tests
 make clean    # clean build artifacts
 ```
 

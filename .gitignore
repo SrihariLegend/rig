@@ -11,3 +11,6 @@ test/test_*
 !test/test_*.c
 !test/test.h
 .rig/snapshots/
+ARCHITECTURE.md
+DESIGN.md
+codegraph.html
