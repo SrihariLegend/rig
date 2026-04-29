@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 680" font-family="'SFMono-Regular','Menlo','Monaco','Consolas','Liberation Mono','Courier New',monospace" font-size="13">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#171b28"/>
+      <stop offset="100%" stop-color="#111520"/>
+    </linearGradient>
+    <linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1c2030"/>
+      <stop offset="100%" stop-color="#141824"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.35" cy="0.25">
+      <stop offset="0%" stop-color="#c8a44e" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#c8a44e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.6" cy="0.65">
+      <stop offset="0%" stop-color="#5a9bcf" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#5a9bcf" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="separator" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2a2f42" stop-opacity="0"/>
+      <stop offset="15%" stop-color="#2a2f42" stop-opacity="1"/>
+      <stop offset="85%" stop-color="#2a2f42" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#2a2f42" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background with depth -->
+  <rect width="880" height="680" rx="10" fill="url(#bg)"/>
+  <rect width="880" height="680" rx="10" fill="url(#glow1)"/>
+  <rect width="880" height="680" rx="10" fill="url(#glow2)"/>
+
+  <!-- Window chrome -->
+  <rect width="880" height="38" rx="10" fill="url(#chrome)"/>
+  <rect y="28" width="880" height="10" fill="#141824"/>
+  <circle cx="20" cy="19" r="5.5" fill="#ff5f57" opacity="0.9"/>
+  <circle cx="38" cy="19" r="5.5" fill="#febc2e" opacity="0.9"/>
+  <circle cx="56" cy="19" r="5.5" fill="#28c840" opacity="0.9"/>
+
+  <!-- Title bar text -->
+  <text x="440" y="23" text-anchor="middle" font-size="11.5" fill="#4a5068" letter-spacing="0.5">rig</text>
+
+  <!-- Status bar -->
+  <rect x="0" y="38" width="880" height="24" fill="#0f1219" opacity="0.6"/>
+  <text x="24" y="54" font-size="10" fill="#363d54" letter-spacing="0.3">
+    <tspan>session: 7f3a2c1</tspan>
+    <tspan dx="16">·</tspan>
+    <tspan dx="16">claude-opus-4-6</tspan>
+    <tspan dx="16">·</tspan>
+    <tspan dx="16">bedrock</tspan>
+    <tspan dx="16">·</tspan>
+    <tspan dx="16">/help for commands</tspan>
+  </text>
+
+  <!-- Turn 1: User -->
+  <text x="24" y="96" font-size="13">
+    <tspan fill="#5a9bcf" font-weight="bold">you</tspan>
+    <tspan fill="#8892ae" dx="14">I need to add error handling to the payment module</tspan>
+  </text>
+
+  <!-- Turn 1: Rig response -->
+  <text x="24" y="130" font-size="13" fill="#c8a44e" font-weight="bold">rig</text>
+  <text x="66" y="130" font-size="12.5" fill="#9098b0">Let me look at the current implementation.</text>
+
+  <!-- Tool call: read -->
+  <rect x="66" y="144" width="370" height="26" rx="4" fill="#1a1f30" stroke="#252a3d" stroke-width="0.5"/>
+  <text x="80" y="162" font-size="11">
+    <tspan fill="#c8a44e">read</tspan>
+    <tspan fill="#5a6078" dx="6">src/payment/handler.go:1-45</tspan>
+  </text>
+  <text x="412" y="162" font-size="10" fill="#28c840">✓</text>
+
+  <!-- Tool call: grep -->
+  <rect x="66" y="176" width="370" height="26" rx="4" fill="#1a1f30" stroke="#252a3d" stroke-width="0.5"/>
+  <text x="80" y="194" font-size="11">
+    <tspan fill="#c8a44e">grep</tspan>
+    <tspan fill="#5a6078" dx="6">"error" src/payment/</tspan>
+  </text>
+  <text x="412" y="194" font-size="10" fill="#28c840">✓</text>
+
+  <text x="66" y="228" font-size="12.5" fill="#9098b0">Found 3 unhandled error paths. Here's the fix:</text>
+
+  <!-- Tool call: edit -->
+  <rect x="66" y="242" width="500" height="26" rx="4" fill="#1a1f30" stroke="#252a3d" stroke-width="0.5"/>
+  <text x="80" y="260" font-size="11">
+    <tspan fill="#c8a44e">edit</tspan>
+    <tspan fill="#5a6078" dx="6">src/payment/handler.go  +23  wrap charge() in error check</tspan>
+  </text>
+  <text x="542" y="260" font-size="10" fill="#28c840">✓</text>
+
+  <!-- Separator -->
+  <rect x="0" y="284" width="880" height="1" fill="url(#separator)"/>
+
+  <!-- Turn 2: User -->
+  <text x="24" y="312" font-size="13">
+    <tspan fill="#5a9bcf" font-weight="bold">you</tspan>
+    <tspan fill="#8892ae" dx="14">/model sonnet</tspan>
+  </text>
+
+  <text x="66" y="340" font-size="12" fill="#5a6078" font-style="italic">Switched to claude-sonnet-4-6 (anthropic)</text>
+
+  <!-- Separator -->
+  <rect x="0" y="358" width="880" height="1" fill="url(#separator)"/>
+
+  <!-- Turn 3: User -->
+  <text x="24" y="386" font-size="13">
+    <tspan fill="#5a9bcf" font-weight="bold">you</tspan>
+    <tspan fill="#8892ae" dx="14">now write tests for it</tspan>
+  </text>
+
+  <!-- Turn 3: Rig response -->
+  <text x="24" y="420" font-size="13" fill="#c8a44e" font-weight="bold">rig</text>
+
+  <!-- Tool call: read -->
+  <rect x="66" y="434" width="420" height="26" rx="4" fill="#1a1f30" stroke="#252a3d" stroke-width="0.5"/>
+  <text x="80" y="452" font-size="11">
+    <tspan fill="#c8a44e">read</tspan>
+    <tspan fill="#5a6078" dx="6">src/payment/handler_test.go</tspan>
+  </text>
+  <text x="462" y="452" font-size="10" fill="#28c840">✓</text>
+
+  <!-- Tool call: write -->
+  <rect x="66" y="466" width="420" height="26" rx="4" fill="#1a1f30" stroke="#252a3d" stroke-width="0.5"/>
+  <text x="80" y="484" font-size="11">
+    <tspan fill="#c8a44e">write</tspan>
+    <tspan fill="#5a6078" dx="6">src/payment/handler_test.go  +58 lines</tspan>
+  </text>
+  <text x="462" y="484" font-size="10" fill="#28c840">✓</text>
+
+  <!-- Permission prompt -->
+  <rect x="66" y="504" width="520" height="48" rx="6" fill="#1a1520" stroke="#3d2a42" stroke-width="0.5"/>
+  <text x="80" y="524" font-size="11">
+    <tspan fill="#d4a0e0">bash</tspan>
+    <tspan fill="#7a6088" dx="6">go test ./src/payment/ -v -count=1</tspan>
+  </text>
+  <text x="80" y="542" font-size="10" fill="#4a3d54">Allow? [y/n/trust]</text>
+  <text x="236" y="542" font-size="10" fill="#28c840">y</text>
+  <text x="260" y="542" font-size="10" fill="#28c840">PASS  3/3</text>
+
+  <text x="66" y="578" font-size="12.5" fill="#9098b0">Added 3 test cases covering the new error paths. All passing.</text>
+
+  <!-- Separator -->
+  <rect x="0" y="596" width="880" height="1" fill="url(#separator)"/>
+
+  <!-- Cursor prompt -->
+  <text x="24" y="624" font-size="13">
+    <tspan fill="#5a9bcf" font-weight="bold">you</tspan>
+    <tspan fill="#4a5068" dx="14">│</tspan>
+  </text>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="648" width="880" height="32" rx="0" fill="#0f1219" opacity="0.6"/>
+  <rect x="0" y="670" width="880" height="10" rx="10" fill="#0f1219" opacity="0.6"/>
+  <text y="668" font-size="10" fill="#2d3348" letter-spacing="0.3">
+    <tspan x="24">23,847 tokens</tspan>
+    <tspan dx="20">·</tspan>
+    <tspan dx="20">3 tool calls</tspan>
+    <tspan dx="20">·</tspan>
+    <tspan dx="20">2 files modified</tspan>
+    <tspan dx="20">·</tspan>
+    <tspan dx="20">tests passing</tspan>
+  </text>
+</svg>
