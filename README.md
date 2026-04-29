@@ -1,14 +1,14 @@
+# Rig
+
 <p align="center">
   <img src="assets/screenshot.png" alt="Rig" width="700">
 </p>
 
-<p align="center">
-  <b>A coding agent that runs anywhere, connects to everything, and gets out of your way.</b>
-</p>
+A coding agent that runs anywhere, connects to everything, and gets out of your way.
 
-<p align="center">
-  <img src="assets/stats.svg" alt="23K lines of C · 566KB binary · 0 runtime deps · MIT" width="700">
-</p>
+**~23K lines of C. 566KB binary. Zero runtime dependencies. Every major LLM provider. Extensible via Lua.**
+
+Rig is a coding agent written in C. One binary, no runtime deps, works with every major LLM provider.
 
 ```
 curl -fsSL https://raw.githubusercontent.com/SrihariLegend/rig/main/install.sh | sh
@@ -16,27 +16,19 @@ rig auth
 rig
 ```
 
-<br>
-
-<p align="center">
-  <img src="assets/demo.svg" alt="Rig in action" width="840">
-</p>
-
-<br>
+---
 
 ## Why Rig
 
-The current generation of AI coding tools ships as Electron apps, Python packages, or Node.js services. Hundreds of megabytes of runtime, version conflicts, locked to one provider.
+The current generation of AI coding tools ships as Electron apps, Python packages, or Node.js services. They bundle hundreds of megabytes of runtime, break on version conflicts, and lock you into one provider.
 
 Rig takes a different position:
 
-| | |
-|---|---|
-| **Single binary** | No Python. No Node. No Docker. Copy it, run it. |
-| **Any provider** | Anthropic, OpenAI, Google, Bedrock, Mistral, DeepSeek, xAI, Groq, OpenRouter. Same interface, switch with a flag. |
-| **Fast** | Compiled C. Starts in under a millisecond. Memory in kilobytes. |
-| **Extensible** | Lua extensions with 8 primitives. No SDK, no build step, drop a file. |
-| **Yours** | An engine, not a product. Build editor plugins, CI agents, internal tools on top. |
+- **Single binary.** No Python. No Node. No Docker. No runtime. Copy it, run it.
+- **Any provider.** Anthropic, OpenAI, Google, Bedrock, Mistral. Same interface, same tools, switch with a flag.
+- **Fast.** Compiled C. Starts in under a millisecond. Memory measured in kilobytes, not gigabytes.
+- **Extensible.** Lua extensions with 8 primitives that cover every possible integration. No SDK to install, no build step.
+- **Infrastructure, not product.** Rig is an engine. Build your own AI coding experience on top: editor plugins, CI pipelines, custom agents, internal tools.
 
 ```
 $ time rig -p "What is 2+2?"
@@ -45,80 +37,101 @@ $ time rig -p "What is 2+2?"
 real    0m0.8s   # that's network latency, not startup time
 ```
 
-## 7 Built-in Tools
+## Features
 
-| Tool | Purpose |
-|------|---------|
-| `bash` | Shell commands with timeout and output capture |
-| `read` | Files with line numbers, offsets, and limits |
-| `write` | Create or overwrite files |
-| `edit` | Find-and-replace edits |
-| `grep` | Regex search across files |
-| `ls` | Directory contents |
-| `introspect` | Query rig's own state (tools, config, extensions) |
+### Multi-Provider LLM Support
 
-Every tool has a permission system. Rig asks before writing or running commands. Trust rules configurable per tool, per path.
+Connect to any major provider with a single auth flow:
 
-## Providers
-
-| Provider | Models | Auth |
-|----------|--------|------|
+| Provider | Built-in Models | Auth |
+|----------|----------------|------|
 | Anthropic | Claude Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5 | API key |
 | OpenAI | GPT-4o | API key |
 | Google | Via model registry | API key |
 | AWS Bedrock | Claude Opus 4.6, Sonnet 4.5, Haiku 4.5 | AWS credentials |
 | Mistral | Via model registry | API key |
 
-Plus DeepSeek, xAI, Groq, OpenRouter. Switch models mid-conversation with `/model`.
+Additional providers: DeepSeek, xAI, Groq, OpenRouter. Run `rig auth` to configure.
 
-## Terminal UI
+Switch models mid-conversation with `/model`. No restart, no config file.
 
-The TUI uses a spatial lighting model. Each character gets its own brightness based on distance from the cursor, fading from warm to cool.
+### Built-in Tools
 
-- **Lantern rendering** with per-character depth coloring
-- **Markdown** rendered inline: code blocks, bold, italic, lists, headings
-- **Scrollback** via mouse wheel, Page Up/Down, vim keys
-- **Themes** as JSON color schemes with hot reload
-- **Responsive** layout that adapts to terminal width
+The agent ships with 7 tools that cover the full coding workflow:
 
-## Sessions and Modes
+| Tool | Purpose |
+|------|---------|
+| `bash` | Execute shell commands with timeout and output capture |
+| `read` | Read files with line numbers, offsets, and limits |
+| `write` | Create or overwrite files |
+| `edit` | Surgical find-and-replace edits |
+| `grep` | Regex search across files |
+| `ls` | List directory contents |
+| `introspect` | Query Rig's own state (tools, config, extensions) |
 
-Conversations persist automatically. Resume with `rig --session <id>` or browse interactively with `/sessions`. Fork conversations with `/fork`.
+Every tool has a permission system. Rig asks before writing to disk or running commands. Trust rules are configurable per tool, per path.
 
-| Mode | Invocation | Use |
-|------|-----------|-----|
-| Interactive | `rig` | Full TUI |
-| Print | `rig -p "prompt"` | Stdout, pipe friendly |
-| JSON | `rig --json -p "prompt"` | Structured output for scripts |
-| RPC | Internal | Editor/tool integration |
+### Terminal UI
+
+A full TUI with a spatial lighting model:
+
+- **Lantern rendering:** warm to cool color gradient that fades with distance from the cursor
+- **Markdown rendering:** code blocks, bold, italic, lists, headings, rendered inline
+- **Scrollback:** scroll through conversation history with mouse wheel, Page Up/Down, or vim keys
+- **Themes:** JSON color schemes with hot reload via `/theme`
+- **Spinner:** visual feedback during tool execution
+- **Responsive:** handles terminal resize, adapts layout to width
+
+### Sessions
+
+Conversations persist automatically. Resume any session:
+
+```
+rig --session abc123
+```
+
+Or browse and pick interactively with `/sessions`.
+
+### Four Modes
+
+| Mode | Use Case | Invocation |
+|------|----------|------------|
+| **Interactive** | TUI conversation | `rig` |
+| **Print** | One off, stdout | `rig -p "prompt"` |
+| **JSON** | Structured event output | `rig --json -p "prompt"` |
+| **RPC** | Editor/tool integration | Internal |
+
+Works with pipes. Script it, embed it, build on it.
+
+---
 
 ## Lua Extensions
 
-8 primitives, mathematically proven to be the minimal complete set for unbounded extensibility:
+Rig exposes **8 primitives** to Lua, mathematically proven to be the minimal complete set for unbounded extensibility:
 
-```lua
-rig.exec(cmd)            -- run a shell command
-rig.completion(params)   -- call any LLM
-rig.print(text)          -- output to the TUI
-rig.input(prompt)        -- read user input
-rig.hook(event, fn)      -- react to events
-rig.unhook(handle)       -- remove a hook
-rig.get(ns, key)         -- read state
-rig.set(ns, key, val)    -- write state
-```
+| Primitive | What it does |
+|-----------|-------------|
+| `rig.exec(cmd)` | Run a shell command |
+| `rig.completion(params)` | Call any LLM |
+| `rig.print(text)` | Output to the TUI |
+| `rig.input(prompt)` | Read user input |
+| `rig.hook(event, fn)` | React to events |
+| `rig.unhook(handle)` | Remove a hook |
+| `rig.get(ns, key)` | Read state |
+| `rig.set(ns, key, val)` | Write state |
 
-Drop a `.lua` file in `.rig/extensions/` and it loads on startup. No framework, no build step.
+That's it. No framework. No build step. No dependency graph. Drop a `.lua` file in `.rig/extensions/` and it loads on startup.
 
-### Custom slash command
+### Example: Custom Slash Command
 
 ```lua
 rig.set("commands", "deploy", function(args)
     local r = rig.exec("git push origin main")
-    rig.print(r.ok and "deployed" or "failed: " .. r.stdout)
+    rig.print(r.ok and "deployed ✓" or "deploy failed: " .. r.stdout)
 end)
 ```
 
-### Custom tool the LLM can call
+### Example: Custom Tool for the LLM
 
 ```lua
 rig.set("tools", "weather", {
@@ -131,7 +144,7 @@ rig.set("tools", "weather", {
 })
 ```
 
-### System prompt injection
+### Example: System Prompt Injection
 
 ```lua
 local r = rig.exec("cat README.md | head -20")
@@ -142,79 +155,123 @@ end
 
 Full documentation: [`docs/extensions.md`](docs/extensions.md)
 
-## Architecture
+---
 
-```
-┌─────────────────────────────────────────────────┐
-│                     rig                          │
-│                  (566KB binary)                  │
-├──────────────┬────────────┬─────────────────────┤
-│   rig-ai     │  rig-agent │    rig-harness      │
-│  providers   │    loop    │   tools, sessions   │
-│  streaming   │    tool    │   permissions       │
-│  transform   │   dispatch │   extensions        │
-├──────────────┴────────────┴─────────────────────┤
-│                   rig-tui                        │
-│      lantern · markdown · scrollback            │
-├─────────────────────────────────────────────────┤
-│               Lua extensions                     │
-│          8 primitives · sandboxed               │
-└─────────────────────────────────────────────────┘
-```
+## Documentation
 
-```
-src/
-├── ai/            LLM providers (Anthropic, OpenAI, Google, Bedrock, Mistral)
-├── agent/         Agent loop: stream, tool calls, execute, repeat
-├── harness/       CLI harness: auth, sessions, tools, permissions, extensions
-│   ├── tools/     Built-in tools (bash, read, write, edit, grep, ls, introspect)
-│   ├── modes/     Interactive, print, RPC
-│   └── extensions/  Hook system, event bus, Lua bridge
-├── tui/           Terminal UI: lantern renderer, markdown, keyboard, scrollback
-└── util/          Arena allocator, strings, hashmap, HTTP, JSON, process
-```
+| Document | What it covers |
+|----------|---------------|
+| [`docs/extensions.md`](docs/extensions.md) | Writing Lua extensions: the 8 primitives, namespaces, sandbox, examples |
+| [`docs/configuration.md`](docs/configuration.md) | Settings layers, permissions, trust rules, directory layout |
+| [`docs/sessions.md`](docs/sessions.md) | Session persistence, branching, context reconstruction |
+| [`docs/workflows.md`](docs/workflows.md) | YAML/JSON workflow engine: 16 step types, expressions, parallel execution |
+| [`docs/themes.md`](docs/themes.md) | Theme format: variables, 51 color tokens, examples |
+| [`docs/prompts.md`](docs/prompts.md) | Prompt templates: frontmatter, variable substitution syntax |
 
-23K lines of C. No generated code.
+---
 
 ## Install
+
+### Quick Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SrihariLegend/rig/main/install.sh | sh
 ```
 
-Downloads a prebuilt binary for your platform (Linux amd64/arm64, macOS arm64), verifies checksum, installs to `/usr/local/bin`.
+Downloads prebuilt binary for your platform (Linux amd64/arm64, macOS amd64/arm64), verifies checksum, installs to `/usr/local/bin`.
 
-### From source
+Pin a version: `RIG_VERSION=v0.1.0 sh -c "$(curl -fsSL ...)"`. Custom path: `RIG_INSTALL_DIR=~/.local/bin`.
+
+### From Source
+
+Requires: a C11 compiler, `libcurl`, `libssl` (OpenSSL), `zlib`. That's it.
 
 ```bash
 git clone https://github.com/SrihariLegend/rig.git
 cd rig
 make
-sudo make install
+sudo make install   # installs to /usr/local/bin
 rig auth
 rig
 ```
 
-Needs a C11 compiler, libcurl, libssl (OpenSSL), zlib. The build vendors Lua 5.4, cJSON, libyaml, and md4c.
+The build vendors its own Lua 5.4, cJSON, libyaml, and md4c. No package manager needed.
 
-## Docs
+### Dependencies
 
-| | |
-|---|---|
-| [`docs/extensions.md`](docs/extensions.md) | Lua extensions: 8 primitives, namespaces, sandbox |
-| [`docs/configuration.md`](docs/configuration.md) | Settings, permissions, trust rules, directory layout |
-| [`docs/sessions.md`](docs/sessions.md) | Session persistence, branching, context reconstruction |
-| [`docs/workflows.md`](docs/workflows.md) | YAML/JSON workflow engine, 16 step types |
-| [`docs/themes.md`](docs/themes.md) | Theme format, 51 color tokens |
-| [`docs/prompts.md`](docs/prompts.md) | Prompt templates, variable substitution |
+**Build time:** C compiler, libcurl-dev, libssl-dev, zlib-dev
+
+**Runtime:** libcurl, libssl, zlib (present on virtually every Linux system)
+
+**Vendored (zero install):** Lua 5.4, cJSON, libyaml, md4c
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│                    rig                       │
+│                 (566KB binary)               │
+├─────────────┬───────────┬───────────────────┤
+│   rig-ai    │ rig-agent │   rig-harness     │
+│  providers  │   loop    │  tools, sessions  │
+│  streaming  │  tool     │  permissions      │
+│  transform  │  dispatch │  extensions       │
+├─────────────┴───────────┴───────────────────┤
+│                  rig-tui                     │
+│     lantern · markdown · scrollback         │
+├─────────────────────────────────────────────┤
+│              Lua extensions                  │
+│         8 primitives · sandboxed            │
+└─────────────────────────────────────────────┘
+```
+
+Everything is in `src/`:
+
+```
+src/
+├── ai/           # LLM provider abstraction (Anthropic, OpenAI, Google, Bedrock, Mistral)
+├── agent/        # Agent loop: stream → tool calls → execute → repeat
+├── harness/      # CLI harness: auth, sessions, tools, permissions, extensions
+│   ├── tools/    # Built-in tools (bash, read, write, edit, grep, ls, introspect)
+│   ├── modes/    # Interactive, print, RPC
+│   └── extensions/ # Hook system, event bus, Lua bridge
+├── tui/          # Terminal UI: Lantern renderer, markdown, keyboard, scrollback
+└── util/         # Arena allocator, strings, hashmap, HTTP, JSON, process
+```
+
+23K lines of C. No generated code. No abstraction astronautics.
+
+---
+
+## Vision
+
+AI coding tools should be infrastructure, not products.
+
+Rig is the engine. The universal layer between LLM providers and whatever you want to build:
+
+- **Editor plugins** that don't ship their own runtime
+- **CI/CD agents** that run in containers without installing Node
+- **Internal tools** that connect to your company's LLM endpoint
+- **Custom agents** with tools and workflows specific to your domain
+- **Community extensions** that install with a single file copy
+
+The binary is the platform. Lua is the extension language. The protocol is simple. Build whatever you want.
+
+---
 
 ## Contributing
 
 ```bash
 make          # build
 make test     # run tests
-make clean    # clean
+make clean    # clean build artifacts
 ```
+
+The codebase is intentionally small and readable. Every subsystem fits in your head.
+
+---
 
 ## License
 
