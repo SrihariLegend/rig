@@ -20,11 +20,9 @@ typedef struct {
     bool input_active;
 
     bool is_streaming;
+    bool tool_breathing;
     int spinner_frame;
     char *spinner_tool_name;
-
-    char *status_left;
-    char *status_right;
 } Viewport;
 
 Viewport *viewport_create(LineStore *store);

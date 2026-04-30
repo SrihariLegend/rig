@@ -14,9 +14,8 @@
 #include "harness/permissions.h"
 #include "harness/ext_build_prompt.h"
 #include "ai/registry.h"
-#include "tui/lantern.h"
+#include "tui/viewport.h"
 #include "tui/linestore.h"
-#include "tui/lantern_render.h"
 #include "tui/terminal.h"
 #include "tui/keys.h"
 #include "tui/ansi.h"
@@ -42,9 +41,8 @@ typedef struct {
     AgentState *agent;
     AgentLoopConfig agent_config;
 
-    Lantern *lantern;
     LineStore *store;
-    LanternRenderer *renderer;
+    Viewport *viewport;
 
     /* Input buffer */
     char *input_buf;
@@ -132,7 +130,7 @@ static void input_clear(InteractiveState *state) {
 }
 
 static void sync_input_to_renderer(InteractiveState *state) {
-    lantern_renderer_set_input(state->renderer, state->input_buf, state->input_cursor);
+    viewport_set_input(state->viewport, state->input_buf, state->input_cursor);
     state->needs_render = true;
 }
 
@@ -344,7 +342,7 @@ static void show_splash(InteractiveState *state) {
         "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x9d  \xe2\x95\x9a\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d",
     };
 
-    int tw = state->renderer->term_width;
+    int tw = state->viewport->term_width;
 
     linestore_add_blank(state->store);
     linestore_add_blank(state->store);
@@ -475,12 +473,12 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
             if (event->stream_event->delta) {
                 pthread_mutex_lock(&state->mutex);
                 linestore_append_assistant_text(state->store, event->stream_event->delta);
-                if (state->renderer->auto_scroll) {
+                if (state->viewport->auto_scroll) {
                     int total = linestore_screen_row_count(state->store);
-                    int vp = state->renderer->term_height - 1;
-                    state->renderer->scroll_offset = total - vp;
-                    if (state->renderer->scroll_offset < 0)
-                        state->renderer->scroll_offset = 0;
+                    int vp = state->viewport->term_height - 1;
+                    state->viewport->scroll_offset = total - vp;
+                    if (state->viewport->scroll_offset < 0)
+                        state->viewport->scroll_offset = 0;
                 }
                 state->needs_render = true;
                 pthread_mutex_unlock(&state->mutex);
@@ -503,7 +501,7 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
                 state->total_tokens += event->stream_event->message->usage.total_tokens;
             }
             pthread_mutex_lock(&state->mutex);
-            lantern_renderer_set_breathing(state->renderer, false, NULL);
+            viewport_set_breathing(state->viewport, false, NULL);
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
             break;
@@ -525,7 +523,7 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
         if (event->message && event->message->role == ROLE_ASSISTANT) {
             pthread_mutex_lock(&state->mutex);
             linestore_flush_stream(state->store);
-            state->renderer->auto_scroll = true;
+            state->viewport->auto_scroll = true;
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
             if (state->session) {
@@ -572,7 +570,7 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
             }
             linestore_add_tool_start(state->store, event->tool_name, args_str);
             free(args_str);
-            lantern_renderer_set_breathing(state->renderer, true, event->tool_name);
+            viewport_set_breathing(state->viewport, true, event->tool_name);
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
         }
@@ -582,7 +580,7 @@ static void on_agent_event(AgentEvent *event, void *userdata) {
         if (event->tool_name) {
             pthread_mutex_lock(&state->mutex);
             linestore_add_tool_done(state->store, event->tool_name);
-            lantern_renderer_set_breathing(state->renderer, false, NULL);
+            viewport_set_breathing(state->viewport, false, NULL);
             if (state->turnlog && turnlog_budget_exceeded(state->turnlog) && !state->turnlog->budget_warned) {
                 state->turnlog->budget_warned = true;
                 linestore_add_system(state->store, "snapshot budget exceeded — file undo disabled for remaining turns");
@@ -694,7 +692,7 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
             state->permission_pending = true;
             int chosen = tui_selector(options, 4, 0);
             state->permission_pending = false;
-            lantern_renderer_render_full(state->renderer);
+            viewport_render_full(state->viewport);
 
             switch (chosen) {
             case 0: /* Allow once */
@@ -788,7 +786,7 @@ static void handle_submit(InteractiveState *state) {
     }
 
     state->phase = ISTATE_STREAMING;
-    state->renderer->is_streaming = true;
+    state->viewport->is_streaming = true;
 
     /* Begin a new turn for undo tracking */
     turnlog_begin_turn(state->turnlog,
@@ -823,7 +821,7 @@ static void *agent_thread_fn(void *raw_arg) {
 
     state->phase = ISTATE_IDLE;
     pthread_mutex_lock(&state->mutex);
-    state->renderer->is_streaming = false;
+    state->viewport->is_streaming = false;
     state->needs_render = true;
     pthread_mutex_unlock(&state->mutex);
 
@@ -1302,10 +1300,10 @@ static bool handle_slash_command(InteractiveState *state) {
         cmd_output(state, buf);
 
         /* Reset scroll to bottom */
-        state->renderer->auto_scroll = true;
+        state->viewport->auto_scroll = true;
         int total = linestore_screen_row_count(state->store);
-        int vp = state->renderer->term_height - 1;
-        state->renderer->scroll_offset = total > vp ? total - vp : 0;
+        int vp = state->viewport->term_height - 1;
+        state->viewport->scroll_offset = total > vp ? total - vp : 0;
 
         cmd_finish(state);
         return true;
@@ -1405,7 +1403,7 @@ static bool handle_slash_command(InteractiveState *state) {
                          new_session->keyword ? new_session->keyword : new_session->session_id,
                          restored);
                 cmd_output(state, lbuf);
-                state->renderer->auto_scroll = true;
+                state->viewport->auto_scroll = true;
                 state->needs_render = true;
                 pthread_mutex_unlock(&state->mutex);
             } else {
@@ -1443,49 +1441,10 @@ static bool handle_slash_command(InteractiveState *state) {
         return true;
     }
 
-    /* /theme <name> */
+    /* /theme — stubbed, will be re-added on top of viewport */
     if (strcmp(cmd, "theme") == 0) {
         pthread_mutex_lock(&state->mutex);
-        if (!arg) {
-            static const char *themes[] = {"default", "midnight", "ember", "ghost", "daylight"};
-            pthread_mutex_unlock(&state->mutex);
-            int chosen = tui_selector(themes, 5, 0);
-            pthread_mutex_lock(&state->mutex);
-            if (chosen >= 0) arg = themes[chosen];
-            else { cmd_finish(state); return true; }
-        }
-        if (strcmp(arg, "default") == 0) {
-            state->lantern->config = lantern_defaults();
-            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
-            cmd_output(state, "theme: default");
-        } else if (strcmp(arg, "midnight") == 0) {
-            state->lantern->config.warmth = (RGB){180, 190, 210};
-            state->lantern->config.coolness = (RGB){60, 70, 90};
-            state->lantern->config.accent = (RGB){100, 150, 220};
-            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
-            cmd_output(state, "theme: midnight");
-        } else if (strcmp(arg, "ember") == 0) {
-            state->lantern->config.warmth = (RGB){240, 200, 170};
-            state->lantern->config.coolness = (RGB){120, 80, 60};
-            state->lantern->config.accent = (RGB){255, 120, 50};
-            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
-            cmd_output(state, "theme: ember");
-        } else if (strcmp(arg, "ghost") == 0) {
-            state->lantern->config.warmth = (RGB){200, 210, 220};
-            state->lantern->config.coolness = (RGB){60, 65, 75};
-            state->lantern->config.accent = (RGB){136, 170, 204};
-            state->lantern->config.floor = 0.02f;
-            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
-            cmd_output(state, "theme: ghost");
-        } else if (strcmp(arg, "daylight") == 0) {
-            state->lantern->config.warmth = (RGB){40, 36, 30};
-            state->lantern->config.coolness = (RGB){140, 135, 130};
-            state->lantern->config.accent = (RGB){139, 105, 20};
-            lantern_rebuild_lut(state->lantern, state->renderer->term_height);
-            cmd_output(state, "theme: daylight");
-        } else {
-            cmd_output(state, "unknown theme — try: default, midnight, ember, ghost, daylight");
-        }
+        cmd_output(state, "themes not yet wired to viewport — coming soon");
         cmd_finish(state);
         return true;
     }
@@ -1761,8 +1720,8 @@ static bool handle_slash_command(InteractiveState *state) {
 
             int tw, th;
             terminal_get_size(&tw, &th);
-            lantern_renderer_resize(state->renderer, tw, th);
-            lantern_renderer_render_full(state->renderer);
+            viewport_resize(state->viewport, tw, th);
+            viewport_render_full(state->viewport);
 
             pthread_mutex_lock(&state->mutex);
             cmd_output(state, "editor closed — use /ext reload to apply changes");
@@ -1874,7 +1833,7 @@ static bool handle_slash_command(InteractiveState *state) {
             cmd_output(state, "generating extension...");
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
-            lantern_renderer_render_full(state->renderer);
+            viewport_render_full(state->viewport);
 
             /* Build the prompt */
             char *user_prompt = malloc(strlen(subarg) + 128);
@@ -2049,46 +2008,46 @@ static bool handle_slash_command(InteractiveState *state) {
 static bool handle_key(InteractiveState *state, const ParsedKey *key) {
     LOG_DEBUG("KEY: id='%s' phase=%d raw_len=%d", key->id, state->phase, key->raw_len);
     if (key_matches(key, "scrollup")) {
-        lantern_renderer_scroll_up(state->renderer, 3);
+        viewport_scroll_up(state->viewport, 3);
         return true;
     }
     if (key_matches(key, "scrolldown")) {
-        lantern_renderer_scroll_down(state->renderer, 3);
+        viewport_scroll_down(state->viewport, 3);
         return true;
     }
     if (key_matches(key, "pageup")) {
-        lantern_renderer_scroll_up(state->renderer, state->renderer->term_height - 2);
+        viewport_scroll_up(state->viewport, state->viewport->term_height - 2);
         return true;
     }
     if (key_matches(key, "pagedown")) {
-        lantern_renderer_scroll_down(state->renderer, state->renderer->term_height - 2);
+        viewport_scroll_down(state->viewport, state->viewport->term_height - 2);
         return true;
     }
     if (key_matches(key, "ctrl+u")) {
-        lantern_renderer_scroll_up(state->renderer, state->renderer->term_height / 2);
+        viewport_scroll_up(state->viewport, state->viewport->term_height / 2);
         return true;
     }
     if (key_matches(key, "ctrl+d")) {
-        lantern_renderer_scroll_down(state->renderer, state->renderer->term_height / 2);
+        viewport_scroll_down(state->viewport, state->viewport->term_height / 2);
         return true;
     }
     if (key_matches(key, "end")) {
-        lantern_renderer_scroll_to_bottom(state->renderer);
+        viewport_scroll_to_bottom(state->viewport);
         return true;
     }
     if (key_matches(key, "shift+up")) {
-        lantern_renderer_scroll_up(state->renderer, 3);
+        viewport_scroll_up(state->viewport, 3);
         return true;
     }
     if (key_matches(key, "shift+down")) {
-        lantern_renderer_scroll_down(state->renderer, 3);
+        viewport_scroll_down(state->viewport, 3);
         return true;
     }
     if (key_matches(key, "up")) {
         if (state->phase == ISTATE_IDLE) {
             history_up(state);
         } else {
-            lantern_renderer_scroll_up(state->renderer, 3);
+            viewport_scroll_up(state->viewport, 3);
         }
         return true;
     }
@@ -2096,7 +2055,7 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         if (state->phase == ISTATE_IDLE) {
             history_down(state);
         } else {
-            lantern_renderer_scroll_down(state->renderer, 3);
+            viewport_scroll_down(state->viewport, 3);
         }
         return true;
     }
@@ -2115,7 +2074,7 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         if (state->phase == ISTATE_STREAMING) {
             agent_abort(state->agent);
             state->phase = ISTATE_IDLE;
-            state->renderer->is_streaming = false;
+            state->viewport->is_streaming = false;
             pthread_mutex_lock(&state->mutex);
             linestore_flush_stream(state->store);
             linestore_add_system(state->store, "interrupted");
@@ -2130,7 +2089,7 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         if (state->phase == ISTATE_STREAMING) {
             agent_abort(state->agent);
             state->phase = ISTATE_IDLE;
-            state->renderer->is_streaming = false;
+            state->viewport->is_streaming = false;
 
             pthread_mutex_lock(&state->mutex);
             /* If no assistant content yet, restore prompt to input */
@@ -2157,7 +2116,7 @@ static bool handle_key(InteractiveState *state, const ParsedKey *key) {
         return true;
     }
     if (key_matches(key, "ctrl+l")) {
-        lantern_renderer_render_full(state->renderer);
+        viewport_render_full(state->viewport);
         return true;
     }
     if (key_matches(key, "backspace")) {
@@ -2340,11 +2299,9 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
         }
     }
 
-    /* Lantern */
-    state->lantern = lantern_create(NULL);
-    lantern_detect_color_tier(state->lantern);
+    /* Viewport */
     state->store = linestore_create();
-    state->renderer = lantern_renderer_create(state->lantern, state->store);
+    state->viewport = viewport_create(state->store);
 
     /* Wire Lua extension context */
     RigLuaContext lua_ctx = {
@@ -2470,9 +2427,8 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
                 if (state->agent) agent_state_free(state->agent);
                 if (state->session) session_free(state->session);
                 turnlog_free(state->turnlog);
-                lantern_renderer_free(state->renderer);
+                viewport_free(state->viewport);
                 linestore_free(state->store);
-                lantern_free(state->lantern);
                 pthread_mutex_destroy(&state->mutex);
                 free(state);
                 return 1;
@@ -2497,7 +2453,7 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
 
     int tw, th;
     terminal_get_size(&tw, &th);
-    lantern_renderer_resize(state->renderer, tw, th);
+    viewport_resize(state->viewport, tw, th);
 
     /* Startup splash */
     show_splash(state);
@@ -2509,7 +2465,7 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
         linestore_add_blank(state->store);
     }
 
-    lantern_renderer_render_full(state->renderer);
+    viewport_render_full(state->viewport);
 
     /* Event loop */
     struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
@@ -2519,8 +2475,8 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
         if (g_winch) {
             g_winch = 0;
             terminal_get_size(&tw, &th);
-            lantern_renderer_resize(state->renderer, tw, th);
-            lantern_renderer_render_full(state->renderer);
+            viewport_resize(state->viewport, tw, th);
+            viewport_render_full(state->viewport);
         }
 
         int ready = poll(&pfd, 1, 16);
@@ -2540,16 +2496,16 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
         tick_counter++;
         if (tick_counter >= 12) {
             tick_counter = 0;
-            lantern_renderer_tick_spinner(state->renderer);
+            viewport_tick_spinner(state->viewport);
         }
 
         pthread_mutex_lock(&state->mutex);
-        bool do_render = state->needs_render || state->renderer->dirty;
+        bool do_render = state->needs_render || state->viewport->dirty;
         bool render_blocked = state->permission_pending;
         state->needs_render = false;
         pthread_mutex_unlock(&state->mutex);
         if (do_render && !render_blocked) {
-            lantern_renderer_render(state->renderer);
+            viewport_render(state->viewport);
         }
     }
 
@@ -2561,9 +2517,8 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
     terminal_exit_raw_mode();
     terminal_exit_alt_screen();
 
-    lantern_renderer_free(state->renderer);
+    viewport_free(state->viewport);
     linestore_free(state->store);
-    lantern_free(state->lantern);
 
     if (state->agent) agent_state_free(state->agent);
     if (state->session) session_free(state->session);

@@ -6,12 +6,21 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#define LEFT_PAD 2
 #define INPUT_ROWS 1
-#define STATUS_ROWS 1
-#define RESERVED_ROWS (INPUT_ROWS + STATUS_ROWS)
 
-static const char *SPINNER[] = {"⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"};
-#define SPINNER_COUNT 10
+/* Amber palette — warm gold tones */
+#define FG_MAIN    "\033[38;2;200;180;140m"
+#define FG_DIM     "\033[38;2;120;108;84m"
+#define FG_ACCENT  "\033[38;2;220;160;60m"
+#define FG_BRIGHT  "\033[38;2;240;220;180m"
+#define FG_ERROR   "\033[38;2;220;80;60m"
+#define FG_GREEN   "\033[38;2;100;180;100m"
+#define FG_CODE    "\033[38;2;170;155;120m"
+#define RST        "\033[0m"
+
+static const char *SPINNER[] = {"|", "/", "-", "\\"};
+#define SPINNER_COUNT 4
 
 Viewport *viewport_create(LineStore *store) {
     Viewport *vp = calloc(1, sizeof(Viewport));
@@ -27,15 +36,13 @@ void viewport_free(Viewport *vp) {
     if (!vp) return;
     free(vp->input_line);
     free(vp->spinner_tool_name);
-    free(vp->status_left);
-    free(vp->status_right);
     free(vp);
 }
 
 void viewport_resize(Viewport *vp, int width, int height) {
     vp->term_width = width;
     vp->term_height = height;
-    vp->content_width = width - 4;
+    vp->content_width = width - LEFT_PAD - 2;
     if (vp->content_width < 20) vp->content_width = 20;
     if (vp->content_width > 100) vp->content_width = 100;
 
@@ -52,29 +59,27 @@ void viewport_set_input(Viewport *vp, const char *text, int cursor_pos) {
 }
 
 void viewport_set_status(Viewport *vp, const char *left, const char *right) {
-    free(vp->status_left);
-    free(vp->status_right);
-    vp->status_left = left ? strdup(left) : NULL;
-    vp->status_right = right ? strdup(right) : NULL;
-    vp->dirty = true;
+    (void)vp; (void)left; (void)right;
 }
 
 void viewport_set_breathing(Viewport *vp, bool active, const char *tool_name) {
+    vp->tool_breathing = active;
     free(vp->spinner_tool_name);
     vp->spinner_tool_name = (active && tool_name) ? strdup(tool_name) : NULL;
-    vp->is_streaming = active;
     vp->dirty = true;
 }
 
 void viewport_tick_spinner(Viewport *vp) {
-    vp->spinner_frame = (vp->spinner_frame + 1) % SPINNER_COUNT;
-    vp->dirty = true;
+    if (vp->tool_breathing || vp->is_streaming) {
+        vp->spinner_frame = (vp->spinner_frame + 1) % SPINNER_COUNT;
+        vp->dirty = true;
+    }
 }
 
 /* ---- Scroll ---- */
 
-static int viewport_rows(const Viewport *vp) {
-    return vp->term_height - RESERVED_ROWS;
+static int content_rows(const Viewport *vp) {
+    return vp->term_height - INPUT_ROWS;
 }
 
 void viewport_scroll_up(Viewport *vp, int lines) {
@@ -86,17 +91,19 @@ void viewport_scroll_up(Viewport *vp, int lines) {
 
 void viewport_scroll_down(Viewport *vp, int lines) {
     int total = linestore_screen_row_count(vp->store);
-    int max_offset = total - viewport_rows(vp);
+    int max_offset = total - content_rows(vp);
     if (max_offset < 0) max_offset = 0;
     vp->scroll_offset += lines;
-    if (vp->scroll_offset > max_offset) vp->scroll_offset = max_offset;
-    if (vp->scroll_offset >= max_offset) vp->auto_scroll = true;
+    if (vp->scroll_offset >= max_offset) {
+        vp->scroll_offset = max_offset;
+        vp->auto_scroll = true;
+    }
     vp->dirty = true;
 }
 
 void viewport_scroll_to_bottom(Viewport *vp) {
     int total = linestore_screen_row_count(vp->store);
-    int max_offset = total - viewport_rows(vp);
+    int max_offset = total - content_rows(vp);
     vp->scroll_offset = max_offset > 0 ? max_offset : 0;
     vp->auto_scroll = true;
     vp->dirty = true;
@@ -106,206 +113,240 @@ bool viewport_at_bottom(const Viewport *vp) {
     return vp->auto_scroll;
 }
 
-/* ---- Rendering ---- */
+/* ---- Rendering helpers ---- */
 
-static void write_str(const char *s) {
-    if (s) write(STDOUT_FILENO, s, strlen(s));
+static void emit_pad(void) {
+    char spaces[LEFT_PAD + 1];
+    memset(spaces, ' ', LEFT_PAD);
+    spaces[LEFT_PAD] = '\0';
+    terminal_write_str(spaces);
 }
 
-static void move_to(int row, int col) {
-    char buf[32];
-    int n = snprintf(buf, sizeof(buf), "\033[%d;%dH", row, col);
-    write(STDOUT_FILENO, buf, (size_t)n);
+static void emit_indent(int n) {
+    for (int i = 0; i < n; i++) terminal_write_str("  ");
 }
 
-static void clear_line(void) {
-    write_str("\033[2K");
+static void render_span_text(const Span *span) {
+    if (span->flags & SPAN_BOLD) terminal_write_str("\033[1m");
+    if (span->flags & SPAN_ITALIC) terminal_write_str("\033[3m");
+    if (span->flags & SPAN_STRIKE) terminal_write_str("\033[9m");
+    if (span->flags & SPAN_CODE) {
+        terminal_write_str(FG_CODE "\033[7m");
+        terminal_write(span->text, span->len);
+        terminal_write_str(RST FG_MAIN);
+        return;
+    }
+    if (span->flags & SPAN_ACCENT) terminal_write_str(FG_ACCENT);
+    terminal_write(span->text, span->len);
+    if (span->flags & (SPAN_BOLD | SPAN_ITALIC | SPAN_STRIKE | SPAN_ACCENT))
+        terminal_write_str(RST FG_MAIN);
 }
 
-static void render_span(const Span *span) {
-    if (span->flags & SPAN_BOLD) write_str("\033[1m");
-    if (span->flags & SPAN_ITALIC) write_str("\033[3m");
-    if (span->flags & SPAN_STRIKE) write_str("\033[9m");
-    if (span->flags & SPAN_CODE) write_str("\033[7m");
-    if (span->flags & SPAN_ACCENT) write_str("\033[36m");
-    write(STDOUT_FILENO, span->text, (size_t)span->len);
-    write_str("\033[0m");
+/* Render wrapped segment of raw_text using word-break logic */
+static void render_wrap_segment(const char *text, int wrap_offset, int width) {
+    int text_len = (int)strlen(text);
+    int row = 0;
+    int pos = 0;
+
+    while (pos < text_len && row <= wrap_offset) {
+        int row_start = pos;
+        int row_end = pos;
+        int vis = 0;
+        int last_space = -1;
+
+        while (row_end < text_len && vis < width) {
+            if (text[row_end] == ' ') last_space = row_end;
+            unsigned char c = (unsigned char)text[row_end];
+            int bytes = 1;
+            if (c >= 0xF0) bytes = 4;
+            else if (c >= 0xE0) bytes = 3;
+            else if (c >= 0xC0) bytes = 2;
+            row_end += bytes;
+            vis++;
+        }
+        if (row_end < text_len && last_space > row_start) {
+            row_end = last_space + 1;
+        }
+        if (row == wrap_offset) {
+            int chunk = row_end - row_start;
+            while (chunk > 0 && text[row_start + chunk - 1] == ' ') chunk--;
+            if (chunk > 0) terminal_write(text + row_start, chunk);
+            return;
+        }
+        pos = row_end;
+        while (pos < text_len && text[pos] == ' ') pos++;
+        row++;
+    }
 }
 
-static void render_line(const Viewport *vp, const StoreLine *line, int row) {
-    move_to(row, 1);
-    clear_line();
-
-    int margin = (vp->term_width - vp->content_width) / 2;
-    if (margin < 1) margin = 1;
-    char pad[128];
-    int pn = margin < 127 ? margin : 127;
-    memset(pad, ' ', (size_t)pn);
-    pad[pn] = '\0';
-
+static void render_line_first(const Viewport *vp, const StoreLine *line) {
+    (void)vp;
     switch (line->type) {
     case LINE_BLANK:
         break;
 
     case LINE_USER_TEXT:
-        write_str(pad);
-        write_str("\033[36m> \033[0m");
-        if (line->raw_text) write_str(line->raw_text);
+        terminal_write_str(FG_ACCENT "> " RST FG_BRIGHT);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_ASSISTANT_TEXT:
-        write_str(pad);
+        terminal_write_str(FG_MAIN);
         if (line->spans && line->span_count > 0) {
             for (int i = 0; i < line->span_count; i++)
-                render_span(&line->spans[i]);
+                render_span_text(&line->spans[i]);
         } else if (line->raw_text) {
-            write_str(line->raw_text);
+            terminal_write_str(line->raw_text);
         }
+        terminal_write_str(RST);
         break;
 
     case LINE_HEADING:
-        write_str(pad);
-        write_str("\033[1;36m");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
-        break;
-
-    case LINE_CODE:
-        write_str(pad);
-        write_str("  \033[2m");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_ACCENT "\033[1m");
+        if (line->spans && line->span_count > 0) {
+            for (int i = 0; i < line->span_count; i++)
+                terminal_write(line->spans[i].text, line->spans[i].len);
+        } else if (line->raw_text) {
+            terminal_write_str(line->raw_text);
+        }
+        terminal_write_str(RST);
         break;
 
     case LINE_CODE_LANG:
-        write_str(pad);
-        write_str("\033[2m───");
-        if (line->raw_text) { write_str(" "); write_str(line->raw_text); }
-        write_str("\033[0m");
+        terminal_write_str(FG_DIM "\xe2\x94\x8c ");
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
+        break;
+
+    case LINE_CODE:
+        terminal_write_str(FG_DIM "\xe2\x94\x82 " RST FG_CODE);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_BLOCKQUOTE:
-        write_str(pad);
-        write_str("\033[2m│ \033[0m\033[3m");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_DIM "\xe2\x94\x82 \033[3m");
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_LIST_ITEM:
-        write_str(pad);
-        if (line->indent > 0) {
-            for (int i = 0; i < line->indent; i++) write_str("  ");
+        emit_indent(line->indent);
+        if (line->heading_level > 0) {
+            char num[16];
+            snprintf(num, sizeof(num), "%d. ", line->heading_level);
+            terminal_write_str(FG_ACCENT);
+            terminal_write_str(num);
+            terminal_write_str(RST FG_MAIN);
+        } else {
+            terminal_write_str(FG_ACCENT "\xc2\xb7 " RST FG_MAIN);
         }
-        write_str("• ");
         if (line->spans && line->span_count > 0) {
             for (int i = 0; i < line->span_count; i++)
-                render_span(&line->spans[i]);
+                render_span_text(&line->spans[i]);
         } else if (line->raw_text) {
-            write_str(line->raw_text);
+            terminal_write_str(line->raw_text);
         }
+        terminal_write_str(RST);
         break;
 
     case LINE_TOOL_START:
-        write_str(pad);
-        write_str("\033[33m⚡ ");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_ACCENT);
+        terminal_write_str(SPINNER[vp->spinner_frame % SPINNER_COUNT]);
+        terminal_write_str(" " RST FG_DIM);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_TOOL_OUTPUT:
-        write_str(pad);
-        write_str("  \033[2m");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_DIM);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_TOOL_DONE:
-        write_str(pad);
-        write_str("\033[32m✓ ");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_GREEN "\xe2\x9c\x93 ");
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_ERROR:
-        write_str(pad);
-        write_str("\033[31m✗ ");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_ERROR "\xc2\xb7 ");
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_SYSTEM:
-        write_str(pad);
-        write_str("\033[2;3m");
-        if (line->raw_text) write_str(line->raw_text);
-        write_str("\033[0m");
+        terminal_write_str(FG_DIM "\033[3m");
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_SEPARATOR:
-        write_str(pad);
-        write_str("\033[2m");
-        for (int i = 0; i < vp->content_width; i++) write_str("─");
-        write_str("\033[0m");
+        terminal_write_str(FG_DIM);
+        for (int i = 0; i < 40; i++) terminal_write_str("\xe2\x94\x80");
+        terminal_write_str(RST);
         break;
 
     case LINE_TABLE_ROW:
+        terminal_write_str(FG_MAIN);
+        if (line->heading_level) terminal_write_str("\033[1m");
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
+        break;
+
     case LINE_TABLE_SEPARATOR:
-        write_str(pad);
-        if (line->raw_text) write_str(line->raw_text);
+        terminal_write_str(FG_DIM);
+        if (line->raw_text) terminal_write_str(line->raw_text);
+        terminal_write_str(RST);
         break;
 
     case LINE_SPLASH:
-        write_str(pad);
-        if (line->raw_text) write_str(line->raw_text);
+        if (line->spans && line->span_count > 0) {
+            for (int s = 0; s < line->span_count; s++) {
+                float br = line->spans[s].brightness;
+                if (br <= 0.001f) {
+                    const unsigned char *p = (const unsigned char *)line->spans[s].text;
+                    const unsigned char *end = p + line->spans[s].len;
+                    while (p < end) {
+                        terminal_write_str(" ");
+                        if (*p >= 0xF0) p += 4;
+                        else if (*p >= 0xE0) p += 3;
+                        else if (*p >= 0xC0) p += 2;
+                        else p++;
+                    }
+                } else {
+                    int r = (int)(220 * br * 0.9f);
+                    int g = (int)(160 * br * 0.9f);
+                    int b = (int)(60 * br * 0.9f);
+                    char fg[32];
+                    snprintf(fg, sizeof(fg), "\033[38;2;%d;%d;%dm", r, g, b);
+                    terminal_write_str(fg);
+                    terminal_write(line->spans[s].text, line->spans[s].len);
+                }
+            }
+            terminal_write_str(RST);
+        } else {
+            float br = line->brightness;
+            if (br <= 0.0f) br = 0.01f;
+            int r = (int)(220 * br);
+            int g = (int)(160 * br);
+            int b = (int)(60 * br);
+            char fg[32];
+            snprintf(fg, sizeof(fg), "\033[38;2;%d;%d;%dm", r, g, b);
+            terminal_write_str(fg);
+            if (line->raw_text) terminal_write_str(line->raw_text);
+            terminal_write_str(RST);
+        }
         break;
     }
 }
 
-static void render_status_bar(const Viewport *vp) {
-    move_to(vp->term_height - 1, 1);
-    clear_line();
-    write_str("\033[7m");
-
-    char bar[512];
-    const char *left = vp->status_left ? vp->status_left : "";
-    const char *right = vp->status_right ? vp->status_right : "";
-
-    int left_len = (int)strlen(left);
-    int right_len = (int)strlen(right);
-    int pad_len = vp->term_width - left_len - right_len;
-    if (pad_len < 1) pad_len = 1;
-
-    int n = snprintf(bar, sizeof(bar), " %s%*s%s ", left, pad_len - 2, "", right);
-    write(STDOUT_FILENO, bar, (size_t)(n < (int)sizeof(bar) ? n : (int)sizeof(bar) - 1));
-    write_str("\033[0m");
-}
-
-static void render_input_line(const Viewport *vp) {
-    move_to(vp->term_height, 1);
-    clear_line();
-
-    if (vp->is_streaming) {
-        const char *frame = SPINNER[vp->spinner_frame % SPINNER_COUNT];
-        write_str("\033[33m");
-        write_str(frame);
-        write_str(" ");
-        if (vp->spinner_tool_name) write_str(vp->spinner_tool_name);
-        else write_str("thinking...");
-        write_str("\033[0m");
-        return;
-    }
-
-    write_str("\033[36m❯\033[0m ");
-    if (vp->input_line) write_str(vp->input_line);
-
-    /* Position cursor */
-    int cursor_col = vp->input_cursor_pos + 3;  /* "❯ " = 2 cols + 1-indexed */
-    char pos[32];
-    int pn = snprintf(pos, sizeof(pos), "\033[%d;%dH", vp->term_height, cursor_col);
-    write(STDOUT_FILENO, pos, (size_t)pn);
-}
+/* ---- Main render ---- */
 
 void viewport_render(Viewport *vp) {
-    if (!vp->dirty) return;
+    /* Always render when called — caller already checked dirty/needs_render */
     viewport_render_full(vp);
 }
 
@@ -313,60 +354,110 @@ void viewport_render_full(Viewport *vp) {
     vp->dirty = false;
     if (vp->term_width <= 0 || vp->term_height <= 0) return;
 
-    int vp_rows = viewport_rows(vp);
+    int vp_rows = content_rows(vp);
     int total = linestore_screen_row_count(vp->store);
 
-    /* Auto-scroll: keep bottom pinned */
+    if (vp->store->needs_scroll_reset) {
+        vp->store->needs_scroll_reset = false;
+        vp->auto_scroll = true;
+    }
+
     if (vp->auto_scroll) {
-        int max_offset = total - vp_rows;
-        vp->scroll_offset = max_offset > 0 ? max_offset : 0;
+        vp->scroll_offset = total - vp_rows;
+    }
+    if (vp->scroll_offset < 0) vp->scroll_offset = 0;
+    if (total > vp_rows && vp->scroll_offset > total - vp_rows) {
+        vp->scroll_offset = total - vp_rows;
     }
 
-    /* Hide cursor during render */
-    write_str("\033[?25l");
+    terminal_sync_begin();
 
-    /* Render visible content lines */
-    for (int row = 0; row < vp_rows; row++) {
-        int screen_row_idx = vp->scroll_offset + row;
-        if (screen_row_idx < total) {
-            ScreenRowRef ref = linestore_row_to_line(vp->store, screen_row_idx);
-            if (ref.line_index >= 0 && ref.line_index < vp->store->count) {
-                StoreLine *line = &vp->store->lines[ref.line_index];
-                /* For wrapped lines, only render the first wrap on the first row */
-                if (ref.wrap_offset == 0) {
-                    render_line(vp, line, row + 1);
-                } else {
-                    /* Continuation of wrapped line */
-                    move_to(row + 1, 1);
-                    clear_line();
-                    int margin = (vp->term_width - vp->content_width) / 2;
-                    if (margin < 1) margin = 1;
-                    char pad[128];
-                    int pn = margin < 127 ? margin : 127;
-                    memset(pad, ' ', (size_t)pn);
-                    pad[pn] = '\0';
-                    write_str(pad);
-                    /* Render wrapped portion */
-                    if (line->raw_text) {
-                        int offset = ref.wrap_offset * vp->content_width;
-                        int remaining = (int)strlen(line->raw_text) - offset;
-                        if (remaining > 0) {
-                            int chunk = remaining > vp->content_width ? vp->content_width : remaining;
-                            write(STDOUT_FILENO, line->raw_text + offset, (size_t)chunk);
-                        }
-                    }
-                }
-            }
-        } else {
-            /* Empty row below content */
-            move_to(row + 1, 1);
-            clear_line();
+    for (int screen_y = 0; screen_y < vp_rows; screen_y++) {
+        terminal_move_cursor(screen_y + 1, 1);
+        terminal_clear_line();
+
+        int global_row = vp->scroll_offset + screen_y;
+        if (global_row < 0 || global_row >= total) continue;
+
+        ScreenRowRef ref = linestore_row_to_line(vp->store, global_row);
+        if (ref.line_index < 0 || ref.line_index >= vp->store->count) continue;
+
+        const StoreLine *line = &vp->store->lines[ref.line_index];
+
+        /* Dim non-tool lines during tool breathing */
+        bool dimmed = vp->tool_breathing &&
+            line->type != LINE_TOOL_START &&
+            line->type != LINE_TOOL_OUTPUT &&
+            line->type != LINE_TOOL_DONE;
+
+        if (dimmed) terminal_write_str("\033[2m");
+
+        int indent = LEFT_PAD + (line->indent & 0x7FFF);
+        emit_pad();
+        if ((line->indent & 0x7FFF) > 0 && line->type != LINE_LIST_ITEM)
+            emit_indent(line->indent & 0x7FFF);
+
+        if (ref.wrap_offset == 0) {
+            render_line_first(vp, line);
+        } else if (line->raw_text) {
+            /* Wrapped continuation */
+            terminal_write_str(FG_MAIN);
+            render_wrap_segment(line->raw_text, ref.wrap_offset, vp->content_width - (indent - LEFT_PAD));
+            terminal_write_str(RST);
         }
+
+        if (dimmed) terminal_write_str(RST);
     }
 
-    render_status_bar(vp);
-    render_input_line(vp);
+    /* Input line at bottom */
+    terminal_move_cursor(vp->term_height, 1);
+    terminal_clear_line();
+    emit_pad();
 
-    /* Show cursor */
-    write_str("\033[?25h");
+    if (vp->is_streaming || vp->tool_breathing) {
+        terminal_write_str(FG_ACCENT);
+        terminal_write_str(SPINNER[vp->spinner_frame % SPINNER_COUNT]);
+        terminal_write_str(RST " " FG_DIM);
+        if (vp->tool_breathing && vp->spinner_tool_name) {
+            terminal_write_str(vp->spinner_tool_name);
+        } else {
+            terminal_write_str("...");
+        }
+        terminal_write_str(RST);
+        terminal_hide_cursor();
+    } else {
+        terminal_write_str(FG_ACCENT "> " RST);
+        if (vp->input_line && vp->input_line[0]) {
+            terminal_write_str(FG_BRIGHT);
+            terminal_write_str(vp->input_line);
+            terminal_write_str(RST);
+        }
+
+        /* Position cursor */
+        int cursor_col = LEFT_PAD + 2 + 1;
+        if (vp->input_line && vp->input_cursor_pos > 0) {
+            const char *p = vp->input_line;
+            int chars = 0;
+            while (*p && chars < vp->input_cursor_pos) {
+                unsigned char c = (unsigned char)*p;
+                int bytes = 1;
+                if (c >= 0xF0) bytes = 4;
+                else if (c >= 0xE0) bytes = 3;
+                else if (c >= 0xC0) bytes = 2;
+                p += bytes;
+                chars++;
+                cursor_col++;
+            }
+        }
+        terminal_move_cursor(vp->term_height, cursor_col);
+        terminal_show_cursor();
+    }
+
+    /* Scroll hint */
+    if (!vp->auto_scroll && total > vp_rows) {
+        terminal_move_cursor(vp->term_height - 1, vp->term_width - 8);
+        terminal_write_str(FG_DIM "\xe2\x86\x93 below" RST);
+    }
+
+    terminal_sync_end();
 }
