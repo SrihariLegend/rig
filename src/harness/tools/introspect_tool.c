@@ -45,6 +45,24 @@ static int introspect_execute(const char *call_id, cJSON *params, void *signal,
                         introspect_tools[i].name,
                         introspect_tools[i].description ? introspect_tools[i].description : "");
         }
+        /* Include dynamically registered extension tools */
+        if (introspect_api) {
+            for (int i = 0; i < introspect_api->tool_count; i++) {
+                Tool *et = introspect_api->tools[i];
+                if (!et || !et->name) continue;
+                /* Skip if already listed from built-in tools */
+                bool dup = false;
+                for (int j = 0; j < introspect_tool_count; j++) {
+                    if (introspect_tools[j].name && strcmp(introspect_tools[j].name, et->name) == 0) {
+                        dup = true; break;
+                    }
+                }
+                if (!dup) {
+                    str_appendf(&out, "- %s: %s (extension)\n",
+                                et->name, et->description ? et->description : "");
+                }
+            }
+        }
     } else if (strcmp(query, "extensions") == 0) {
         if (introspect_api && introspect_api->extension_count > 0) {
             str_append(&out, "Loaded extensions:\n");
