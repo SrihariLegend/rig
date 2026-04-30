@@ -613,6 +613,16 @@ static int lua_rig_get(lua_State *L) {
         return 1;
     }
 
+    if (strcmp(ns, "prompts") == 0) {
+        if (!ctx || !ctx->agent || !ctx->agent->system_prompt) { lua_pushnil(L); return 1; }
+        if (key && strcmp(key, "tokens") == 0) {
+            lua_pushinteger(L, (lua_Integer)(strlen(ctx->agent->system_prompt) / 4));
+            return 1;
+        }
+        lua_pushstring(L, ctx->agent->system_prompt);
+        return 1;
+    }
+
     if (strcmp(ns, "tools") == 0) {
         if (!api) { lua_pushnil(L); return 1; }
         if (key) {
@@ -910,6 +920,103 @@ static int lua_json_decode(lua_State *L) {
 }
 
 /* ============================================================
+ *  File I/O: rig.read_file(path) / rig.write_file(path, content)
+ * ============================================================ */
+
+static int lua_rig_read_file(lua_State *L) {
+    const char *path = luaL_checkstring(L, 1);
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot open file");
+        return 2;
+    }
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len < 0 || len > 10 * 1024 * 1024) {
+        fclose(f);
+        lua_pushnil(L);
+        lua_pushstring(L, len < 0 ? "ftell error" : "file too large (>10MB)");
+        return 2;
+    }
+    char *buf = malloc((size_t)len + 1);
+    if (!buf) { fclose(f); lua_pushnil(L); lua_pushstring(L, "out of memory"); return 2; }
+    size_t read = fread(buf, 1, (size_t)len, f);
+    fclose(f);
+    buf[read] = '\0';
+    lua_pushlstring(L, buf, read);
+    free(buf);
+    return 1;
+}
+
+static int lua_rig_write_file(lua_State *L) {
+    const char *path = luaL_checkstring(L, 1);
+    size_t len;
+    const char *content = luaL_checklstring(L, 2, &len);
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, "cannot open file for writing");
+        return 2;
+    }
+    size_t written = fwrite(content, 1, len, f);
+    fclose(f);
+    lua_pushboolean(L, written == len);
+    return 1;
+}
+
+/* ============================================================
+ *  Event Bus: rig.publish(topic, data) / rig.subscribe(topic, fn)
+ * ============================================================ */
+
+static int lua_rig_publish(lua_State *L) {
+    const char *topic = luaL_checkstring(L, 1);
+    RigExtensionAPI *api = get_api(L);
+    if (!api || !api->bus) return luaL_error(L, "no event bus");
+    cJSON *data = lua_istable(L, 2) ? lua_to_cjson(L, 2) : NULL;
+    event_bus_publish(api->bus, topic, "lua", data);
+    if (data) cJSON_Delete(data);
+    return 0;
+}
+
+typedef struct { lua_State *L; int ref; pthread_mutex_t *lua_mutex; } LuaSubCtx;
+
+static void lua_sub_bridge(BusEvent *event, void *ud) {
+    LuaSubCtx *sctx = (LuaSubCtx *)ud;
+    if (sctx->lua_mutex) pthread_mutex_lock(sctx->lua_mutex);
+    lua_rawgeti(sctx->L, LUA_REGISTRYINDEX, sctx->ref);
+    lua_pushstring(sctx->L, event->topic);
+    push_cjson(sctx->L, event->data);
+    if (lua_pcall(sctx->L, 2, 0, 0) != LUA_OK) {
+        LOG_ERROR("[lua] subscribe handler error: %s", lua_tostring(sctx->L, -1));
+        lua_pop(sctx->L, 1);
+    }
+    if (sctx->lua_mutex) pthread_mutex_unlock(sctx->lua_mutex);
+}
+
+static int lua_rig_subscribe(lua_State *L) {
+    const char *topic = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    RigExtensionAPI *api = get_api(L);
+    LuaExtState *st = get_state(L);
+    if (!api || !api->bus) return luaL_error(L, "no event bus");
+
+    lua_pushvalue(L, 2);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    LuaSubCtx *sctx = malloc(sizeof(LuaSubCtx));
+    if (!sctx) return luaL_error(L, "out of memory");
+    sctx->L = L;
+    sctx->ref = ref;
+    sctx->lua_mutex = &st->lua_mutex;
+    track_alloc(st, sctx);
+
+    event_bus_subscribe(api->bus, topic, lua_sub_bridge, sctx);
+    return 0;
+}
+
+/* ============================================================
  *  Register the rig global
  * ============================================================ */
 
@@ -922,6 +1029,10 @@ static const struct luaL_Reg rig_methods[] = {
     {"unhook",     lua_rig_unhook},
     {"get",        lua_rig_get},
     {"set",        lua_rig_set},
+    {"read_file",  lua_rig_read_file},
+    {"write_file", lua_rig_write_file},
+    {"publish",    lua_rig_publish},
+    {"subscribe",  lua_rig_subscribe},
     {NULL, NULL},
 };
 
