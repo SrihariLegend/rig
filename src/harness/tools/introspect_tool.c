@@ -2,6 +2,7 @@
 #include "harness/config.h"
 #include "harness/permissions.h"
 #include "harness/extensions/extension.h"
+#include "harness/ext_api_ref.h"
 #include "util/str.h"
 #include "util/fs.h"
 #include "cjson/cJSON.h"
@@ -130,6 +131,8 @@ static int introspect_execute(const char *call_id, cJSON *params, void *signal,
         } else {
             str_append(&out, "No .rig directory found.\n");
         }
+    } else if (strcmp(query, "ext_api") == 0) {
+        str_append(&out, EXT_API_REFERENCE);
     } else {
         str_append(&out, "Rig introspection tool — query the agent's own state.\n\n");
         str_append(&out, "Available queries:\n");
@@ -139,6 +142,7 @@ static int introspect_execute(const char *call_id, cJSON *params, void *signal,
         str_append(&out, "- config     — show directories and configuration\n");
         str_append(&out, "- commands   — list all slash commands (built-in + extension)\n");
         str_append(&out, "- project    — show .rig project directory contents\n");
+        str_append(&out, "- ext_api    — extension API reference for writing Lua extensions\n");
         str_append(&out, "- help       — show this help\n");
     }
 
@@ -156,7 +160,7 @@ Tool tool_introspect_create(void) {
     cJSON *q = cJSON_CreateObject();
     cJSON_AddStringToObject(q, "type", "string");
     cJSON_AddStringToObject(q, "description",
-        "What to query. One of: tools, extensions, trust, config, commands, project, help");
+        "What to query. One of: tools, extensions, trust, config, commands, project, ext_api, help");
     cJSON *qenum = cJSON_CreateArray();
     cJSON_AddItemToArray(qenum, cJSON_CreateString("tools"));
     cJSON_AddItemToArray(qenum, cJSON_CreateString("extensions"));
@@ -164,6 +168,7 @@ Tool tool_introspect_create(void) {
     cJSON_AddItemToArray(qenum, cJSON_CreateString("config"));
     cJSON_AddItemToArray(qenum, cJSON_CreateString("commands"));
     cJSON_AddItemToArray(qenum, cJSON_CreateString("project"));
+    cJSON_AddItemToArray(qenum, cJSON_CreateString("ext_api"));
     cJSON_AddItemToArray(qenum, cJSON_CreateString("help"));
     cJSON_AddItemToObject(q, "enum", qenum);
     cJSON_AddItemToObject(props, "query", q);

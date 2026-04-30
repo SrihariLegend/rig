@@ -259,7 +259,7 @@ static int lua_tool_execute(const char *call_id, cJSON *params, void *signal,
 
 typedef struct {
     Str *text;
-    bool done;
+    volatile bool done;
 } ExtBuildBridge;
 
 static void ext_build_stream_cb(StreamEvent *event, void *ud) {
@@ -1555,7 +1555,6 @@ static bool handle_slash_command(InteractiveState *state) {
             cmd_output(state, "/trust write /home/* — trust writes under /home/");
             cmd_output(state, "during prompts: [y]es [n]o [t]rust tool [a]llow pattern [!] yolo");
         } else if (strcmp(arg, "ext") == 0) {
-            cmd_output(state, "/ext build <desc>  — generate extension with AI");
             cmd_output(state, "/ext add <url>     — install from URL or git repo");
             cmd_output(state, "/ext list          — show loaded extensions");
             cmd_output(state, "/ext remove <name> — delete extension");
@@ -1584,7 +1583,7 @@ static bool handle_slash_command(InteractiveState *state) {
     if (strcmp(cmd, "ext") == 0) {
         if (!arg) {
             pthread_mutex_lock(&state->mutex);
-            cmd_output(state, "usage: /ext [build|add|list|remove|reload|edit]");
+            cmd_output(state, "usage: /ext [add|list|remove|reload|edit]");
             cmd_finish(state);
             return true;
         }
@@ -1856,8 +1855,8 @@ static bool handle_slash_command(InteractiveState *state) {
             return true;
         }
 
-        /* /ext build <description> */
-        if (strcmp(subcmd, "build") == 0) {
+        /* /ext build removed — model uses introspect ext_api + write tool instead */
+        if (0) {
             if (!subarg) {
                 pthread_mutex_lock(&state->mutex);
                 cmd_output(state, "usage: /ext build <description of what the extension should do>");
@@ -1873,7 +1872,9 @@ static bool handle_slash_command(InteractiveState *state) {
 
             pthread_mutex_lock(&state->mutex);
             cmd_output(state, "generating extension...");
+            state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
+            lantern_renderer_render_full(state->renderer);
 
             /* Build the prompt */
             char *user_prompt = malloc(strlen(subarg) + 128);
@@ -1905,6 +1906,7 @@ static bool handle_slash_command(InteractiveState *state) {
                     .max_tokens = state->model->max_tokens,
                     .api_key = state->api_key,
                     .timeout_ms = 120000,
+                    .abort_flag = &bridge.done,
                 },
                 .reasoning = THINKING_OFF,
             };
@@ -1997,7 +1999,7 @@ static bool handle_slash_command(InteractiveState *state) {
         }
 
         pthread_mutex_lock(&state->mutex);
-        cmd_output(state, "usage: /ext [build|add|list|remove|reload|edit]");
+        cmd_output(state, "usage: /ext [add|list|remove|reload|edit]");
         cmd_finish(state);
         return true;
     }
