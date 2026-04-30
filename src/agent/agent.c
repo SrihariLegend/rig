@@ -556,6 +556,8 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 cJSON *hd = cJSON_CreateObject();
                 cJSON_AddNumberToObject(hd, "message_count", converted_count);
                 cJSON_AddStringToObject(hd, "model", config->model ? config->model->id : "unknown");
+                cJSON_AddNumberToObject(hd, "max_tokens", opts.base.max_tokens);
+                cJSON_AddNumberToObject(hd, "temperature", opts.base.temperature);
                 cJSON *hook_result = NULL;
                 hook_chain_fire(config->hooks, "pre_api_call", hd, &hook_result);
                 cJSON_Delete(hd);
@@ -572,6 +574,12 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                     cJSON *sk = cJSON_GetObjectItem(hook_result, "skip");
                     if (sk && cJSON_IsTrue(sk))
                         skip_api_call = true;
+                    cJSON *mt = cJSON_GetObjectItem(hook_result, "max_tokens");
+                    if (mt && cJSON_IsNumber(mt))
+                        opts.base.max_tokens = mt->valueint;
+                    cJSON *temp = cJSON_GetObjectItem(hook_result, "temperature");
+                    if (temp && cJSON_IsNumber(temp))
+                        opts.base.temperature = temp->valuedouble;
                     cJSON_Delete(hook_result);
                 }
             }
@@ -637,6 +645,18 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 for (int ci = 0; ci < assistant->content_count; ci++)
                     if (assistant->content[ci].type == CONTENT_TOOL_CALL) tc++;
                 cJSON_AddNumberToObject(hd, "tool_call_count", tc);
+                const char *sr = "none";
+                switch (assistant->stop_reason) {
+                    case STOP_STOP: sr = "stop"; break;
+                    case STOP_LENGTH: sr = "length"; break;
+                    case STOP_TOOL_USE: sr = "tool_use"; break;
+                    case STOP_ERROR: sr = "error"; break;
+                    case STOP_ABORTED: sr = "aborted"; break;
+                    default: break;
+                }
+                cJSON_AddStringToObject(hd, "stop_reason", sr);
+                cJSON_AddNumberToObject(hd, "input_tokens", assistant->usage.input_tokens);
+                cJSON_AddNumberToObject(hd, "output_tokens", assistant->usage.output_tokens);
                 hook_chain_fire(config->hooks, "post_api_call", hd, NULL);
                 cJSON_Delete(hd);
             }
