@@ -52,7 +52,8 @@ int tui_selector(const char **items, int count, int initial) {
             if (sel < visible - 1) sel++;
         } else if (key_matches(&key, "enter")) {
             break;
-        } else if (key_matches(&key, "escape") || key_matches(&key, "ctrl-c")) {
+        } else if (key_matches(&key, "escape") || key_matches(&key, "ctrl+c") ||
+                   (buf[0] == 'q' && n == 1)) {
             sel = -1;
             break;
         }
