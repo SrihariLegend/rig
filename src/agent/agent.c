@@ -325,7 +325,9 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
                 if (assistant_msg->content[i].tool_call.arguments)
                     cJSON_AddItemToObject(hd, "args", cJSON_Duplicate(assistant_msg->content[i].tool_call.arguments, 1));
                 cJSON *hook_result = NULL;
+
                 hook_chain_fire(config->hooks, "pre_tool", hd, &hook_result);
+
                 cJSON_Delete(hd);
                 if (hook_result && !jobs[j].is_error) {
                     cJSON *blk = cJSON_GetObjectItem(hook_result, "block");
@@ -428,7 +430,9 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
             cJSON_AddStringToObject(hd, "id", jobs[i].tool_call->tool_call.id ? jobs[i].tool_call->tool_call.id : "");
             cJSON_AddBoolToObject(hd, "is_error", jobs[i].is_error);
             cJSON *hook_result = NULL;
+
             hook_chain_fire(config->hooks, "post_tool", hd, &hook_result);
+
             cJSON_Delete(hd);
             if (hook_result) {
                 cJSON *ovr = cJSON_GetObjectItem(hook_result, "override_result");
@@ -543,7 +547,9 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
             if (config->hooks) {
                 cJSON *hd = cJSON_CreateObject();
                 cJSON_AddNumberToObject(hd, "message_count", state->message_count);
+
                 hook_chain_fire(config->hooks, "turn_start", hd, NULL);
+
                 cJSON_Delete(hd);
             }
 
@@ -597,7 +603,9 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 cJSON_AddNumberToObject(hd, "max_tokens", opts.base.max_tokens);
                 cJSON_AddNumberToObject(hd, "temperature", opts.base.temperature);
                 cJSON *hook_result = NULL;
+
                 hook_chain_fire(config->hooks, "pre_api_call", hd, &hook_result);
+
                 cJSON_Delete(hd);
                 if (hook_result) {
                     cJSON *ab = cJSON_GetObjectItem(hook_result, "abort");
@@ -697,10 +705,13 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 cJSON_AddNumberToObject(hd, "output_tokens", assistant->usage.output_tokens);
                 hook_chain_fire(config->hooks, "post_api_call", hd, NULL);
                 cJSON_Delete(hd);
+                /* Re-fetch: hook may have spliced messages */
+                assistant = (state->message_count > 0)
+                    ? state->messages[state->message_count - 1] : NULL;
             }
 
             has_more_tool_calls = false;
-            if (assistant && !state->abort_requested) {
+            if (assistant && assistant->role == ROLE_ASSISTANT && !state->abort_requested) {
                 Message **tool_results = NULL;
                 int result_count = 0;
                 bool should_continue = false;

@@ -858,6 +858,18 @@ static int lua_rig_set(lua_State *L) {
                                         insert, insert_count);
             free(insert);
             if (rc != 0) return luaL_error(L, "splice failed");
+
+            /* Update display if last message was replaced */
+            if (ctx->store && insert_count > 0) {
+                Message *last = ctx->agent->messages[ctx->agent->message_count - 1];
+                if (last && last->role == ROLE_ASSISTANT && last->content_count > 0 &&
+                    last->content[0].type == CONTENT_TEXT && last->content[0].text.text) {
+                    if (ctx->mutex) pthread_mutex_lock(ctx->mutex);
+                    linestore_replace_last_message(
+                        (LineStore *)ctx->store, last->content[0].text.text);
+                    if (ctx->mutex) pthread_mutex_unlock(ctx->mutex);
+                }
+            }
             return 0;
         }
         return 0;
@@ -869,6 +881,11 @@ static int lua_rig_set(lua_State *L) {
         } else {
             const char *text = luaL_checkstring(L, 3);
             system_prompt_add_fragment(key, text);
+        }
+        if (ctx && ctx->agent) {
+            free(ctx->agent->system_prompt);
+            ctx->agent->system_prompt = system_prompt_build(
+                ctx->agent->tools, ctx->agent->tool_count, ctx->cwd);
         }
         return 0;
     }

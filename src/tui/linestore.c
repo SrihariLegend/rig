@@ -348,6 +348,24 @@ void linestore_flush_stream(LineStore *ls) {
     ls->needs_scroll_reset = true;
 }
 
+void linestore_replace_last_message(LineStore *ls, const char *text) {
+    if (!ls || !text) return;
+
+    /* Remove lines from stream_start_idx to end */
+    while (ls->count > ls->stream_start_idx) {
+        ls->count--;
+        ls->total_screen_rows -= ls->lines[ls->count].wrap_count;
+        free(ls->lines[ls->count].raw_text);
+        free(ls->lines[ls->count].spans);
+        ls->lines[ls->count].raw_text = NULL;
+        ls->lines[ls->count].spans = NULL;
+    }
+
+    /* Render replacement text */
+    md_render_to_linestore(ls, text, (int)strlen(text), LINE_ASSISTANT_TEXT);
+    ls->needs_scroll_reset = true;
+}
+
 void linestore_add_tool_start(LineStore *ls, const char *name, const char *args) {
     StoreLine *line = linestore_alloc_line(ls);
     if (!line) return;

@@ -11,6 +11,7 @@ typedef struct {
     char *paste_data;
     char raw[256];
     int raw_len;
+    int consumed;
 } ParsedKey;
 
 ParsedKey key_parse(const char *raw_input, int len);

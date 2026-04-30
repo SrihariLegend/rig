@@ -24,6 +24,8 @@ ParsedKey key_parse(const char *raw, int len) {
         key.raw_len = copy;
     }
 
+    key.consumed = len;
+
     if (!raw || len <= 0) {
         set_id(&key, "unknown");
         return key;
@@ -103,8 +105,10 @@ ParsedKey key_parse(const char *raw, int len) {
                 if (*p == ';') p++;
                 while (*p && isdigit((unsigned char)*p)) { y = y * 10 + (*p - '0'); p++; }
                 (void)x; (void)y;
-                bool release = (*p == 'm');
+                bool release = (*p == 'm' || *p == 'M');
                 (void)release;
+                if (*p == 'm' || *p == 'M') p++;
+                key.consumed = (int)(p - raw);
 
                 if (button == 64) { set_id(&key, "scrollup"); return key; }
                 if (button == 65) { set_id(&key, "scrolldown"); return key; }

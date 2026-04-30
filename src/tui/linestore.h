@@ -87,6 +87,7 @@ void linestore_begin_message(LineStore *ls, uint32_t msg_index);
 
 void linestore_append_assistant_text(LineStore *ls, const char *text);
 void linestore_flush_stream(LineStore *ls);
+void linestore_replace_last_message(LineStore *ls, const char *text);
 void linestore_add_tool_start(LineStore *ls, const char *name, const char *args);
 void linestore_add_tool_output(LineStore *ls, const char *text);
 void linestore_add_tool_done(LineStore *ls, const char *name);

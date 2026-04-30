@@ -2486,9 +2486,13 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
             ssize_t n = read(STDIN_FILENO, buf, sizeof(buf) - 1);
             if (n > 0) {
                 buf[n] = '\0';
-                ParsedKey key = key_parse(buf, (int)n);
-                handle_key(state, &key);
-                if (!state->running) break;
+                int offset = 0;
+                while (offset < (int)n && state->running) {
+                    ParsedKey key = key_parse(buf + offset, (int)n - offset);
+                    if (key.consumed <= 0) break;
+                    handle_key(state, &key);
+                    offset += key.consumed;
+                }
             }
         }
 
