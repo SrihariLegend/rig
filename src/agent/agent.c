@@ -94,6 +94,53 @@ void agent_state_reset(AgentState *state) {
     queue_clear(&state->follow_up_queue);
 }
 
+int agent_state_splice(AgentState *state, int start, int delete_count,
+                       Message **insert, int insert_count) {
+    if (!state) return -1;
+    if (state->is_streaming) return -1;
+    if (start < 0 || start > state->message_count) return -1;
+    if (delete_count < 0) return -1;
+    if (insert_count < 0) return -1;
+
+    /* Clamp delete_count to available messages from start */
+    if (start + delete_count > state->message_count)
+        delete_count = state->message_count - start;
+
+    /* Free deleted messages */
+    for (int i = start; i < start + delete_count; i++) {
+        message_free(state->messages[i]);
+    }
+
+    int new_count = state->message_count - delete_count + insert_count;
+
+    /* Grow capacity if needed */
+    if (new_count > state->message_capacity) {
+        int new_cap = state->message_capacity ? state->message_capacity : 16;
+        while (new_cap < new_count) new_cap *= 2;
+        Message **new_msgs = realloc(state->messages, (size_t)new_cap * sizeof(Message *));
+        if (!new_msgs) return -1;
+        state->messages = new_msgs;
+        state->message_capacity = new_cap;
+    }
+
+    /* Shift tail to make room (or close gap) */
+    int tail_start = start + delete_count;
+    int tail_count = state->message_count - tail_start;
+    if (tail_count > 0 && insert_count != delete_count) {
+        memmove(&state->messages[start + insert_count],
+                &state->messages[tail_start],
+                (size_t)tail_count * sizeof(Message *));
+    }
+
+    /* Insert new messages */
+    for (int i = 0; i < insert_count; i++) {
+        state->messages[start + i] = insert[i];
+    }
+
+    state->message_count = new_count;
+    return 0;
+}
+
 void agent_state_free(AgentState *state) {
     if (!state) return;
     agent_state_reset(state);

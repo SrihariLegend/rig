@@ -525,6 +525,43 @@ static int lua_rig_get(lua_State *L) {
         if (key && strcmp(key, "count") == 0) {
             lua_pushinteger(L, ctx->agent->message_count); return 1;
         }
+        if (key && strcmp(key, "tokens") == 0) {
+            /* Rough estimate: sum text lengths / 4 */
+            size_t chars = 0;
+            for (int i = 0; i < ctx->agent->message_count; i++) {
+                Message *m = ctx->agent->messages[i];
+                for (int j = 0; j < m->content_count; j++) {
+                    if (m->content[j].type == CONTENT_TEXT && m->content[j].text.text)
+                        chars += strlen(m->content[j].text.text);
+                }
+            }
+            lua_pushinteger(L, (lua_Integer)(chars / 4));
+            return 1;
+        }
+        /* Integer key: return single message (1-indexed) */
+        if (key) {
+            char *endp;
+            long idx = strtol(key, &endp, 10);
+            if (*endp == '\0' && idx >= 1 && idx <= ctx->agent->message_count) {
+                Message *m = ctx->agent->messages[idx - 1];
+                lua_newtable(L);
+                const char *role = m->role == ROLE_USER ? "user" :
+                                   m->role == ROLE_ASSISTANT ? "assistant" :
+                                   m->role == ROLE_TOOL_RESULT ? "tool_result" : "unknown";
+                lua_pushstring(L, role); lua_setfield(L, -2, "role");
+                Str text = str_new(256);
+                for (int j = 0; j < m->content_count; j++) {
+                    if (m->content[j].type == CONTENT_TEXT && m->content[j].text.text)
+                        str_append(&text, m->content[j].text.text);
+                }
+                lua_pushstring(L, text.data ? text.data : "");
+                lua_setfield(L, -2, "content");
+                str_free(&text);
+                return 1;
+            }
+            if (*endp == '\0') { lua_pushnil(L); return 1; }
+        }
+        /* No key or non-numeric: return all messages */
         lua_newtable(L);
         for (int i = 0; i < ctx->agent->message_count; i++) {
             Message *m = ctx->agent->messages[i];
@@ -725,6 +762,61 @@ static int lua_rig_set(lua_State *L) {
         }
         if (strcmp(key, "clear") == 0) {
             agent_state_reset(ctx->agent);
+            return 0;
+        }
+        if (strcmp(key, "splice") == 0) {
+            /* rig.set("messages", "splice", {start=N, delete=N, messages={...}}) */
+            luaL_checktype(L, 3, LUA_TTABLE);
+            if (ctx->agent->is_streaming)
+                return luaL_error(L, "cannot splice while streaming");
+
+            lua_getfield(L, 3, "start");
+            int start = lua_isinteger(L, -1) ? (int)lua_tointeger(L, -1) : -1;
+            lua_pop(L, 1);
+            if (start < 1) return luaL_error(L, "splice: start must be >= 1");
+            start--; /* Convert to 0-indexed */
+
+            lua_getfield(L, 3, "delete");
+            int delete_count = lua_isinteger(L, -1) ? (int)lua_tointeger(L, -1) : 0;
+            lua_pop(L, 1);
+            if (delete_count < 0) return luaL_error(L, "splice: delete must be >= 0");
+
+            /* Parse replacement messages */
+            lua_getfield(L, 3, "messages");
+            int insert_count = 0;
+            Message **insert = NULL;
+            if (lua_istable(L, -1)) {
+                insert_count = (int)lua_rawlen(L, -1);
+                if (insert_count > 0) {
+                    insert = calloc((size_t)insert_count, sizeof(Message *));
+                    if (!insert) { lua_pop(L, 1); return luaL_error(L, "out of memory"); }
+                    int valid = 0;
+                    for (int i = 1; i <= insert_count; i++) {
+                        lua_rawgeti(L, -1, i);
+                        if (!lua_istable(L, -1)) { lua_pop(L, 1); continue; }
+                        lua_getfield(L, -1, "role");
+                        lua_getfield(L, -2, "content");
+                        const char *r = lua_tostring(L, -2);
+                        const char *c = lua_tostring(L, -1);
+                        lua_pop(L, 3);
+                        if (!r || !c) continue;
+                        Message *msg = NULL;
+                        if (strcmp(r, "user") == 0) msg = message_create_user(c);
+                        else if (strcmp(r, "assistant") == 0) {
+                            msg = message_create_assistant();
+                            if (msg) message_add_content(msg, content_text(c, NULL));
+                        }
+                        if (msg) insert[valid++] = msg;
+                    }
+                    insert_count = valid;
+                }
+            }
+            lua_pop(L, 1);
+
+            int rc = agent_state_splice(ctx->agent, start, delete_count,
+                                        insert, insert_count);
+            free(insert);
+            if (rc != 0) return luaL_error(L, "splice failed");
             return 0;
         }
         return 0;

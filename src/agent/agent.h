@@ -145,6 +145,8 @@ AgentState *agent_state_create(void);
 void agent_state_free(AgentState *state);
 void agent_state_add_message(AgentState *state, Message *msg);
 void agent_state_reset(AgentState *state);
+int agent_state_splice(AgentState *state, int start, int delete_count,
+                       Message **insert, int insert_count);
 
 /* ---- Public API ---- */
 
