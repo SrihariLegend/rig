@@ -5,6 +5,7 @@
 #include "util/fs.h"
 #include "agent/agent.h"
 #include "ai/registry.h"
+#include "ai/models.h"
 #include "harness/system_prompt.h"
 #include "tui/linestore.h"
 #include "cjson/cJSON.h"
@@ -252,6 +253,21 @@ static void completion_stream_cb(StreamEvent *event, void *ud) {
     }
 }
 
+static const Model *find_model_by_hint(const char *hint) {
+    if (!hint) return NULL;
+    int pcount = 0;
+    const char **providers = models_get_providers(&pcount);
+    for (int p = 0; p < pcount; p++) {
+        int mcount = 0;
+        const Model **all = models_get_all(providers[p], &mcount);
+        for (int i = 0; i < mcount; i++) {
+            if (strstr(all[i]->id, hint) || strstr(all[i]->name, hint))
+                return all[i];
+        }
+    }
+    return NULL;
+}
+
 static int lua_rig_completion(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     RigLuaContext *ctx = get_ctx(L);
@@ -293,13 +309,26 @@ static int lua_rig_completion(lua_State *L) {
     }
     lua_pop(L, 1);
 
+    /* Model selection: use specified model or fall back to default */
     const Model *model = ctx->model;
+    lua_getfield(L, 1, "model");
+    if (lua_isstring(L, -1)) {
+        const Model *found = find_model_by_hint(lua_tostring(L, -1));
+        if (found) model = found;
+    }
+    lua_pop(L, 1);
+
     Str response = str_new(4096);
     CompletionBridge bridge = { .text = &response, .done = false };
 
     int max_tokens = model->max_tokens;
     lua_getfield(L, 1, "max_tokens");
     if (lua_isinteger(L, -1)) max_tokens = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    double temperature = -1.0;
+    lua_getfield(L, 1, "temperature");
+    if (lua_isnumber(L, -1)) temperature = lua_tonumber(L, -1);
     lua_pop(L, 1);
 
     /* Flatten Message** to Message* (shallow copy for ai_stream_simple) */
@@ -311,7 +340,7 @@ static int lua_rig_completion(lua_State *L) {
 
     SimpleStreamOptions sopts = {
         .base = {
-            .temperature = -1.0,
+            .temperature = temperature,
             .max_tokens = max_tokens,
             .api_key = ctx->api_key,
             .timeout_ms = 120000,
@@ -507,6 +536,7 @@ static int lua_rig_get(lua_State *L) {
                 lua_pushstring(L, ctx->model->id); lua_setfield(L, -2, "model_id");
                 lua_pushstring(L, ctx->model->provider); lua_setfield(L, -2, "provider");
                 lua_pushinteger(L, ctx->model->context_window); lua_setfield(L, -2, "context_window");
+                lua_pushinteger(L, ctx->model->max_tokens); lua_setfield(L, -2, "max_output_tokens");
             }
             if (ctx && ctx->cwd) { lua_pushstring(L, ctx->cwd); lua_setfield(L, -2, "cwd"); }
             return 1;
