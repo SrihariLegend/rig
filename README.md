@@ -57,7 +57,7 @@ Switch models mid-conversation with `/model`. No restart, no config file.
 
 ### Built-in Tools
 
-The agent ships with 7 tools that cover the full coding workflow:
+The agent ships with 6 tools that cover the full coding workflow:
 
 | Tool | Purpose |
 |------|---------|
@@ -66,20 +66,19 @@ The agent ships with 7 tools that cover the full coding workflow:
 | `write` | Create or overwrite files |
 | `edit` | Surgical find-and-replace edits |
 | `grep` | Regex search across files |
-| `ls` | List directory contents |
 | `introspect` | Query Rig's own state (tools, config, extensions) |
 
 Every tool has a permission system. Rig asks before writing to disk or running commands. Trust rules are configurable per tool, per path.
 
 ### Terminal UI
 
-A full TUI with a spatial lighting model:
+A full TUI with an amber-toned viewport renderer:
 
-- **Lantern rendering:** warm to cool color gradient that fades with distance from the cursor
+- **Viewport rendering:** warm amber palette with true-color output, left-aligned layout
 - **Markdown rendering:** code blocks, bold, italic, lists, headings, rendered inline
 - **Scrollback:** scroll through conversation history with mouse wheel, Page Up/Down, or vim keys
-- **Themes:** JSON color schemes with hot reload via `/theme`
-- **Spinner:** visual feedback during tool execution
+- **Tool breathing:** non-tool content dims during tool execution for visual focus
+- **Spinner:** visual feedback during tool execution and streaming
 - **Responsive:** handles terminal resize, adapts layout to width
 
 ### Sessions
@@ -220,7 +219,7 @@ The build vendors its own Lua 5.4, cJSON, libyaml, and md4c. No package manager 
 │  transform  │  dispatch │  extensions       │
 ├─────────────┴───────────┴───────────────────┤
 │                  rig-tui                     │
-│     lantern · markdown · scrollback         │
+│    viewport · markdown · scrollback         │
 ├─────────────────────────────────────────────┤
 │              Lua extensions                  │
 │         8 primitives · sandboxed            │
@@ -234,10 +233,10 @@ src/
 ├── ai/           # LLM provider abstraction (Anthropic, OpenAI, Google, Bedrock, Mistral)
 ├── agent/        # Agent loop: stream → tool calls → execute → repeat
 ├── harness/      # CLI harness: auth, sessions, tools, permissions, extensions
-│   ├── tools/    # Built-in tools (bash, read, write, edit, grep, ls, introspect)
+│   ├── tools/    # Built-in tools (bash, read, write, edit, grep, introspect)
 │   ├── modes/    # Interactive, print, RPC
 │   └── extensions/ # Hook system, event bus, Lua bridge
-├── tui/          # Terminal UI: Lantern renderer, markdown, keyboard, scrollback
+├── tui/          # Terminal UI: viewport renderer, markdown, keyboard, scrollback
 └── util/         # Arena allocator, strings, hashmap, HTTP, JSON, process
 ```
 
