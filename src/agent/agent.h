@@ -3,6 +3,7 @@
 
 #include "ai/types.h"
 #include "ai/registry.h"
+#include "harness/extensions/hooks.h"
 
 /* ---- Agent Events ---- */
 
@@ -115,6 +116,8 @@ typedef struct {
     char *session_id;
     int timeout_ms;
     volatile bool *abort_flag;
+
+    HookChain *hooks;
 } AgentLoopConfig;
 
 /* ---- Agent State ---- */

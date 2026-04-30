@@ -1,5 +1,6 @@
 #include "agent.h"
 #include "ai/validation.h"
+#include "harness/extensions/hooks.h"
 #include "util/log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -270,6 +271,16 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
         if (assistant_msg->content[i].type == CONTENT_TOOL_CALL) {
             prepare_tool_call(state, &jobs[j], &assistant_msg->content[i], config, assistant_msg);
 
+            if (config->hooks) {
+                cJSON *hd = cJSON_CreateObject();
+                cJSON_AddStringToObject(hd, "tool", assistant_msg->content[i].tool_call.name ? assistant_msg->content[i].tool_call.name : "");
+                cJSON_AddStringToObject(hd, "id", assistant_msg->content[i].tool_call.id ? assistant_msg->content[i].tool_call.id : "");
+                if (assistant_msg->content[i].tool_call.arguments)
+                    cJSON_AddItemToObject(hd, "args", cJSON_Duplicate(assistant_msg->content[i].tool_call.arguments, 1));
+                hook_chain_fire(config->hooks, "pre_tool", hd, NULL);
+                cJSON_Delete(hd);
+            }
+
             AgentEvent ev = { .type = AGENT_EVENT_TOOL_EXEC_START,
                               .tool_call_id = assistant_msg->content[i].tool_call.id,
                               .tool_name = assistant_msg->content[i].tool_call.name,
@@ -339,6 +350,15 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
     bool all_terminate = tc_count > 0;
 
     for (int i = 0; i < tc_count; i++) {
+        if (config->hooks) {
+            cJSON *hd = cJSON_CreateObject();
+            cJSON_AddStringToObject(hd, "tool", jobs[i].tool_call->tool_call.name ? jobs[i].tool_call->tool_call.name : "");
+            cJSON_AddStringToObject(hd, "id", jobs[i].tool_call->tool_call.id ? jobs[i].tool_call->tool_call.id : "");
+            cJSON_AddBoolToObject(hd, "is_error", jobs[i].is_error);
+            hook_chain_fire(config->hooks, "post_tool", hd, NULL);
+            cJSON_Delete(hd);
+        }
+
         AgentEvent ev = { .type = AGENT_EVENT_TOOL_EXEC_END,
                           .tool_call_id = jobs[i].tool_call->tool_call.id,
                           .tool_name = jobs[i].tool_call->tool_call.name,
@@ -435,6 +455,13 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
             AgentEvent turn_start = { .type = AGENT_EVENT_TURN_START };
             cb(&turn_start, userdata);
 
+            if (config->hooks) {
+                cJSON *hd = cJSON_CreateObject();
+                cJSON_AddNumberToObject(hd, "message_count", state->message_count);
+                hook_chain_fire(config->hooks, "turn_start", hd, NULL);
+                cJSON_Delete(hd);
+            }
+
             for (int i = 0; i < pending_count; i++) {
                 agent_state_add_message(state, pending[i]);
             }
@@ -475,6 +502,14 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
             if (config->get_api_key && config->model) {
                 config->get_api_key(config->model->provider, &allocated_key);
                 if (allocated_key) opts.base.api_key = allocated_key;
+            }
+
+            if (config->hooks) {
+                cJSON *hd = cJSON_CreateObject();
+                cJSON_AddNumberToObject(hd, "message_count", converted_count);
+                cJSON_AddStringToObject(hd, "model", config->model ? config->model->id : "unknown");
+                hook_chain_fire(config->hooks, "pre_api_call", hd, NULL);
+                cJSON_Delete(hd);
             }
 
             state->is_streaming = true;
@@ -529,6 +564,17 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 LOG_WARN("Agent: no assistant message from API");
             }
 
+            if (config->hooks && assistant) {
+                cJSON *hd = cJSON_CreateObject();
+                cJSON_AddNumberToObject(hd, "content_count", assistant->content_count);
+                int tc = 0;
+                for (int ci = 0; ci < assistant->content_count; ci++)
+                    if (assistant->content[ci].type == CONTENT_TOOL_CALL) tc++;
+                cJSON_AddNumberToObject(hd, "tool_call_count", tc);
+                hook_chain_fire(config->hooks, "post_api_call", hd, NULL);
+                cJSON_Delete(hd);
+            }
+
             has_more_tool_calls = false;
             if (assistant && !state->abort_requested) {
                 Message **tool_results = NULL;
@@ -545,6 +591,14 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 free(tool_results);
 
                 has_more_tool_calls = should_continue;
+            }
+
+            if (config->hooks) {
+                cJSON *hd = cJSON_CreateObject();
+                cJSON_AddNumberToObject(hd, "message_count", state->message_count);
+                cJSON_AddBoolToObject(hd, "has_tool_calls", has_more_tool_calls);
+                hook_chain_fire(config->hooks, "turn_end", hd, NULL);
+                cJSON_Delete(hd);
             }
 
             AgentEvent turn_end = { .type = AGENT_EVENT_TURN_END, .message = assistant };

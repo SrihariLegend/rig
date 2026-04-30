@@ -2381,6 +2381,7 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
         .timeout_ms = 120000,
         .abort_flag = &state->agent->abort_requested,
         .before_tool_call = before_tool,
+        .hooks = state->rig ? state->rig->api->hooks : NULL,
     };
 
     const char *proj_dir = config_project_dir();
