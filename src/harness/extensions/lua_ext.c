@@ -8,6 +8,7 @@
 #include "ai/models.h"
 #include "harness/system_prompt.h"
 #include "tui/linestore.h"
+#include "tui/selector.h"
 #include "cjson/cJSON.h"
 
 #include <lua5.4/lua.h>
@@ -1017,6 +1018,35 @@ static int lua_rig_subscribe(lua_State *L) {
 }
 
 /* ============================================================
+ *  Selector: rig.select(items, initial?) → chosen string or nil
+ * ============================================================ */
+
+static int lua_rig_select(lua_State *L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    int count = (int)lua_rawlen(L, 1);
+    if (count <= 0) { lua_pushnil(L); return 1; }
+
+    const char **items = malloc((size_t)count * sizeof(char *));
+    if (!items) return luaL_error(L, "out of memory");
+    for (int i = 1; i <= count; i++) {
+        lua_rawgeti(L, 1, i);
+        items[i - 1] = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    }
+
+    int initial = (int)luaL_optinteger(L, 2, 1) - 1;
+    int chosen = tui_selector(items, count, initial);
+    free(items);
+
+    if (chosen >= 0) {
+        lua_rawgeti(L, 1, chosen + 1);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+/* ============================================================
  *  Spawn: rig.spawn(cmd, opts?) → process userdata
  * ============================================================ */
 
@@ -1111,6 +1141,7 @@ static const struct luaL_Reg rig_methods[] = {
     {"publish",    lua_rig_publish},
     {"subscribe",  lua_rig_subscribe},
     {"spawn",      lua_rig_spawn},
+    {"select",     lua_rig_select},
     {NULL, NULL},
 };
 

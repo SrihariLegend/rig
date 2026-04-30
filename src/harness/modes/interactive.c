@@ -20,6 +20,7 @@
 #include "tui/terminal.h"
 #include "tui/keys.h"
 #include "tui/ansi.h"
+#include "tui/selector.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -925,14 +926,42 @@ static bool handle_slash_command(InteractiveState *state) {
     if (strcmp(cmd, "model") == 0) {
         pthread_mutex_lock(&state->mutex);
         if (!arg) {
-            char buf[256];
-            snprintf(buf, sizeof(buf), "model: %s (%s)",
-                     state->model ? state->model->name : "none",
-                     state->model ? state->model->id : "none");
-            cmd_output(state, buf);
-            if (state->total_tokens > 0) {
-                snprintf(buf, sizeof(buf), "tokens: %d", state->total_tokens);
-                cmd_output(state, buf);
+            const char *provider = auth_get_active_provider();
+            int count = 0;
+            const Model **all = models_get_all(provider, &count);
+            if (count > 0) {
+                const char **names = malloc((size_t)count * sizeof(char *));
+                int current = 0;
+                for (int i = 0; i < count; i++) {
+                    names[i] = all[i]->name;
+                    if (state->model && strcmp(state->model->id, all[i]->id) == 0)
+                        current = i;
+                }
+                pthread_mutex_unlock(&state->mutex);
+                int chosen = tui_selector(names, count, current);
+                free(names);
+                pthread_mutex_lock(&state->mutex);
+                if (chosen >= 0 && chosen < count) {
+                    const Model *found = all[chosen];
+                    char *key = auth_get_api_key(found->provider);
+                    if (key) {
+                        state->model = found;
+                        free(state->api_key);
+                        state->api_key = key;
+                        state->agent->model = found;
+                        state->agent_config.model = found;
+                        state->agent_config.max_tokens = found->max_tokens;
+                        state->agent_config.api_key = key;
+                        free(state->agent->system_prompt);
+                        state->agent->system_prompt = system_prompt_build(
+                            state->tools, state->tool_count, state->cwd);
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "switched to %s", found->name);
+                        cmd_output(state, buf);
+                    }
+                }
+            } else {
+                cmd_output(state, "no models available");
             }
         } else if (strcmp(arg, "list") == 0) {
             const char *provider = auth_get_active_provider();
@@ -1397,74 +1426,9 @@ static bool handle_slash_command(InteractiveState *state) {
             return true;
         }
 
-        /* Interactive picker loop */
-        int selected = 0;
-        int scroll_top = 0;
-        int visible = state->renderer->term_height - 4;
-        if (visible > count) visible = count;
-        if (visible < 1) visible = 1;
+        int selected = tui_selector((const char **)labels, count, 0);
 
-        struct pollfd pfd2 = { .fd = STDIN_FILENO, .events = POLLIN };
-        bool picked = false;
-        bool cancelled = false;
-
-        while (!picked && !cancelled) {
-            /* Render picker */
-            Str screen = str_new(2048);
-            str_append(&screen, "\x1b[2J\x1b[H");  /* clear + home */
-            str_append(&screen, "\x1b[1m sessions \x1b[0m\x1b[2m  ↑↓ navigate  enter select  esc cancel\x1b[0m\n\n");
-
-            if (scroll_top > selected) scroll_top = selected;
-            if (selected >= scroll_top + visible) scroll_top = selected - visible + 1;
-
-            for (int i = scroll_top; i < scroll_top + visible && i < count; i++) {
-                if (i == selected) {
-                    RGB accent = state->lantern->config.accent;
-                    str_appendf(&screen, "\x1b[38;2;%d;%d;%dm  > %s\x1b[0m\n",
-                                accent.r, accent.g, accent.b, labels[i]);
-                } else {
-                    str_appendf(&screen, "    \x1b[2m%s\x1b[0m\n", labels[i]);
-                }
-            }
-
-            if (count > visible) {
-                str_appendf(&screen, "\n\x1b[2m  %d/%d\x1b[0m", selected + 1, count);
-            }
-
-            write(STDOUT_FILENO, screen.data, screen.len);
-            str_free(&screen);
-
-            /* Wait for input */
-            int ready = poll(&pfd2, 1, 50);
-            if (ready > 0 && (pfd2.revents & POLLIN)) {
-                char ch[32];
-                ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
-                if (n <= 0) continue;
-                ch[n] = '\0';
-
-                ParsedKey key = key_parse(ch, (int)n);
-                if (key_matches(&key, "up") || key_matches(&key, "scrollup")) {
-                    if (selected > 0) selected--;
-                } else if (key_matches(&key, "down") || key_matches(&key, "scrolldown")) {
-                    if (selected < count - 1) selected++;
-                } else if (key_matches(&key, "enter")) {
-                    picked = true;
-                } else if (key_matches(&key, "escape") || key_matches(&key, "ctrl+c")) {
-                    cancelled = true;
-                } else if (key_matches(&key, "pageup")) {
-                    selected -= visible;
-                    if (selected < 0) selected = 0;
-                } else if (key_matches(&key, "pagedown")) {
-                    selected += visible;
-                    if (selected >= count) selected = count - 1;
-                }
-            }
-        }
-
-        /* Restore TUI */
-        lantern_renderer_render_full(state->renderer);
-
-        if (picked && paths[selected]) {
+        if (selected >= 0 && paths[selected]) {
             /* Load selected session */
             Session *new_session = session_load(paths[selected]);
             if (new_session) {
@@ -1523,9 +1487,14 @@ static bool handle_slash_command(InteractiveState *state) {
     if (strcmp(cmd, "theme") == 0) {
         pthread_mutex_lock(&state->mutex);
         if (!arg) {
-            cmd_output(state, "themes: default, midnight, ember, ghost, daylight");
-            cmd_output(state, "usage: /theme <name>");
-        } else if (strcmp(arg, "default") == 0) {
+            static const char *themes[] = {"default", "midnight", "ember", "ghost", "daylight"};
+            pthread_mutex_unlock(&state->mutex);
+            int chosen = tui_selector(themes, 5, 0);
+            pthread_mutex_lock(&state->mutex);
+            if (chosen >= 0) arg = themes[chosen];
+            else { cmd_finish(state); return true; }
+        }
+        if (strcmp(arg, "default") == 0) {
             state->lantern->config = lantern_defaults();
             lantern_rebuild_lut(state->lantern, state->renderer->term_height);
             cmd_output(state, "theme: default");

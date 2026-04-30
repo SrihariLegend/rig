@@ -68,7 +68,7 @@ WORKFLOW_OBJ = $(WORKFLOW_SRC:.c=.o)
 
 TUI_SRC = src/tui/ansi.c src/tui/keys.c src/tui/terminal.c \
           src/tui/lantern.c src/tui/lantern_render.c \
-          src/tui/linestore.c src/tui/md_render.c
+          src/tui/linestore.c src/tui/md_render.c src/tui/selector.c
 TUI_OBJ = $(TUI_SRC:.c=.o)
 
 RPC_SRC = src/harness/modes/rpc.c
