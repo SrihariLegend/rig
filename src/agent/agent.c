@@ -324,8 +324,33 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
                 cJSON_AddStringToObject(hd, "id", assistant_msg->content[i].tool_call.id ? assistant_msg->content[i].tool_call.id : "");
                 if (assistant_msg->content[i].tool_call.arguments)
                     cJSON_AddItemToObject(hd, "args", cJSON_Duplicate(assistant_msg->content[i].tool_call.arguments, 1));
-                hook_chain_fire(config->hooks, "pre_tool", hd, NULL);
+                cJSON *hook_result = NULL;
+                hook_chain_fire(config->hooks, "pre_tool", hd, &hook_result);
                 cJSON_Delete(hd);
+                if (hook_result && !jobs[j].is_error) {
+                    cJSON *blk = cJSON_GetObjectItem(hook_result, "block");
+                    if (blk && cJSON_IsTrue(blk)) {
+                        cJSON *reason = cJSON_GetObjectItem(hook_result, "reason");
+                        const char *r = (reason && cJSON_IsString(reason)) ? reason->valuestring : "blocked by hook";
+                        jobs[j].is_error = true;
+                        jobs[j].error_reason = strdup(r);
+                        jobs[j].result_content = malloc(sizeof(ContentBlock));
+                        jobs[j].result_content[0] = content_text(r, NULL);
+                        jobs[j].result_count = 1;
+                        if (jobs[j].validated_args) {
+                            cJSON_Delete(jobs[j].validated_args);
+                            jobs[j].validated_args = NULL;
+                        }
+                    }
+                    cJSON *ma = cJSON_GetObjectItem(hook_result, "modify_args");
+                    if (ma && cJSON_IsObject(ma) && jobs[j].validated_args) {
+                        cJSON_Delete(jobs[j].validated_args);
+                        jobs[j].validated_args = cJSON_Duplicate(ma, 1);
+                    }
+                    cJSON_Delete(hook_result);
+                } else if (hook_result) {
+                    cJSON_Delete(hook_result);
+                }
             }
 
             AgentEvent ev = { .type = AGENT_EVENT_TOOL_EXEC_START,
@@ -402,8 +427,21 @@ static int execute_tool_calls(AgentState *state, Message *assistant_msg,
             cJSON_AddStringToObject(hd, "tool", jobs[i].tool_call->tool_call.name ? jobs[i].tool_call->tool_call.name : "");
             cJSON_AddStringToObject(hd, "id", jobs[i].tool_call->tool_call.id ? jobs[i].tool_call->tool_call.id : "");
             cJSON_AddBoolToObject(hd, "is_error", jobs[i].is_error);
-            hook_chain_fire(config->hooks, "post_tool", hd, NULL);
+            cJSON *hook_result = NULL;
+            hook_chain_fire(config->hooks, "post_tool", hd, &hook_result);
             cJSON_Delete(hd);
+            if (hook_result) {
+                cJSON *ovr = cJSON_GetObjectItem(hook_result, "override_result");
+                if (ovr && cJSON_IsString(ovr) && jobs[i].result_content) {
+                    for (int k = 0; k < jobs[i].result_count; k++)
+                        content_block_free(&jobs[i].result_content[k]);
+                    free(jobs[i].result_content);
+                    jobs[i].result_content = malloc(sizeof(ContentBlock));
+                    jobs[i].result_content[0] = content_text(ovr->valuestring, NULL);
+                    jobs[i].result_count = 1;
+                }
+                cJSON_Delete(hook_result);
+            }
         }
 
         AgentEvent ev = { .type = AGENT_EVENT_TOOL_EXEC_END,
