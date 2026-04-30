@@ -30,6 +30,7 @@ Restart rig, type `/greet`.
 | `rig.write_file(path, content)` | Write file, returns boolean |
 | `rig.publish(topic, data)` | Publish event to the event bus |
 | `rig.subscribe(topic, fn)` | Subscribe to event bus topic |
+| `rig.spawn(cmd)` | Start persistent subprocess, returns handle |
 
 ## Namespaces
 
@@ -233,6 +234,68 @@ end)
 ```
 
 Wildcard patterns match topic prefixes.
+
+## Spawn (Persistent Subprocesses)
+
+`rig.spawn(cmd)` starts a long-running process with bidirectional pipes. Use for MCP servers, language servers, or any process that speaks line-based protocols.
+
+```lua
+local proc = rig.spawn("npx @modelcontextprotocol/server-filesystem /home")
+
+-- Write to stdin
+proc:write('{"jsonrpc":"2.0","id":1,"method":"initialize"}\n')
+
+-- Read a line from stdout (timeout in ms, default 30000)
+local line = proc:read_line(5000)
+
+-- Check if still running
+if proc:is_alive() then
+    proc:close()  -- sends SIGTERM, waits 2s, then SIGKILL
+end
+```
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `proc:write(str)` | boolean | Write to stdin. Returns false if process dead. |
+| `proc:read_line(timeout_ms?)` | string or nil | Read one line. Nil on timeout/EOF. |
+| `proc:is_alive()` | boolean | Check if process is running |
+| `proc:close()` | - | Kill process and close pipes |
+
+Process is automatically cleaned up when garbage collected.
+
+### MCP Server Example
+
+```lua
+local proc = rig.spawn("npx @modelcontextprotocol/server-files /home")
+
+proc:write(json.encode({
+    jsonrpc = "2.0", id = 1, method = "initialize",
+    params = {capabilities = {}}
+}) .. "\n")
+
+local resp = json.decode(proc:read_line(10000))
+
+-- Register each tool the server exposes
+for _, tool in ipairs(resp.result.capabilities.tools or {}) do
+    rig.set("tools", "mcp_" .. tool.name, {
+        description = tool.description,
+        params = tool.inputSchema,
+        run = function(args)
+            local id = math.random(100000)
+            proc:write(json.encode({
+                jsonrpc = "2.0", id = id,
+                method = "tools/call",
+                params = {name = tool.name, arguments = args}
+            }) .. "\n")
+            local r = json.decode(proc:read_line(30000))
+            if r and r.result then return json.encode(r.result) end
+            return "error: no result"
+        end
+    })
+end
+```
 
 ## JSON
 
