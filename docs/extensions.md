@@ -14,7 +14,7 @@ end)
 
 Restart rig, type `/greet`.
 
-## The 8 Primitives
+## Primitives
 
 | Primitive | What it does |
 |-----------|-------------|
@@ -26,6 +26,10 @@ Restart rig, type `/greet`.
 | `rig.unhook(handle)` | Remove a hook by handle |
 | `rig.get(ns, key?)` | Read state - see [Namespaces](#namespaces) |
 | `rig.set(ns, key, value)` | Write state - see [Namespaces](#namespaces) |
+| `rig.read_file(path)` | Read file contents, returns string or nil+error |
+| `rig.write_file(path, content)` | Write file, returns boolean |
+| `rig.publish(topic, data)` | Publish event to the event bus |
+| `rig.subscribe(topic, fn)` | Subscribe to event bus topic |
 
 ## Namespaces
 
@@ -33,11 +37,15 @@ Restart rig, type `/greet`.
 
 | Namespace | Key | Returns |
 |-----------|-----|---------|
-| `"config"` | `nil` | Table: `{model, model_id, provider, context_window, cwd}` |
+| `"config"` | `nil` | Table: `{model, model_id, provider, context_window, max_output_tokens, cwd}` |
 | `"config"` | `"model"` | Model name string |
 | `"config"` | `"cwd"` | Working directory string |
 | `"messages"` | `nil` | Array of `{role, content}` - full conversation history |
 | `"messages"` | `"count"` | Number of messages |
+| `"messages"` | `"tokens"` | Estimated token count of all messages |
+| `"messages"` | `1`, `2`, ... | Single message by index (1-indexed) |
+| `"prompts"` | `nil` | Full assembled system prompt string |
+| `"prompts"` | `"tokens"` | Estimated token count of system prompt |
 | `"tools"` | `nil` | Array of tool name strings |
 | `"tools"` | `"name"` | `{name, description}` for a specific tool |
 | `"settings"` | key | JSON value from settings |
@@ -52,6 +60,7 @@ Restart rig, type `/greet`.
 | `"tools"` | name | `nil` | Remove a tool |
 | `"messages"` | `"append"` | `{role, content}` | Add a message to history |
 | `"messages"` | `"clear"` | - | Clear conversation history |
+| `"messages"` | `"splice"` | `{start, delete, messages}` | Replace/remove/insert messages |
 | `"prompts"` | name | text | Inject a system prompt fragment |
 | `"prompts"` | name | `nil` | Remove a system prompt fragment |
 | `"settings"` | key | value | Store a setting |
@@ -59,10 +68,74 @@ Restart rig, type `/greet`.
 
 ## Hook Events
 
+The agent loop fires hooks at key points. Extensions can observe, modify, or control behavior by returning tables from hook handlers.
+
+### Available Events
+
+| Event | When | Data |
+|-------|------|------|
+| `init` | Startup (once) | none |
+| `turn_start` | Beginning of each loop turn | `{message_count}` |
+| `pre_api_call` | Before LLM call | `{message_count, model, max_tokens, temperature}` |
+| `post_api_call` | After LLM response | `{content_count, tool_call_count, stop_reason, input_tokens, output_tokens}` |
+| `pre_tool` | Before each tool executes | `{tool, id, args}` |
+| `post_tool` | After each tool completes | `{tool, id, is_error}` |
+| `turn_end` | After tool results added | `{message_count, has_tool_calls}` |
+
+### Hook Return Values
+
+Return `true` to continue, `false` to stop the hook chain, or a **table** to control behavior:
+
+**From `pre_api_call`:**
 ```lua
-local h = rig.hook("tool_call", function(event, data)
-    -- event = "tool_call", data = JSON table with call info
-    return true - -- allow (return false to block)
+rig.hook("pre_api_call", function(event, data)
+    return {max_tokens = 8192}       -- override output limit
+    -- return {temperature = 0}      -- override temperature
+    -- return {skip = true}          -- skip this LLM call entirely
+    -- return {abort = true}         -- stop the agent loop
+end)
+```
+
+**From `pre_tool`:**
+```lua
+rig.hook("pre_tool", function(event, data)
+    if data.tool == "bash" and dangerous(data.args) then
+        return {block = true, reason = "blocked by safety extension"}
+    end
+    -- return {modify_args = {command = "echo safe"}}  -- override args
+    return true
+end)
+```
+
+**From `post_tool`:**
+```lua
+rig.hook("post_tool", function(event, data)
+    -- return {override_result = "truncated output"}  -- replace tool output
+    return true
+end)
+```
+
+**From `turn_end`:**
+```lua
+rig.hook("turn_end", function(event, data)
+    if not data.has_tool_calls and should_continue() then
+        return {
+            continue_loop = true,
+            inject_messages = {
+                {role = "user", content = "Continue."}
+            }
+        }
+    end
+    return true
+end)
+```
+
+### Basic Example
+
+```lua
+local h = rig.hook("pre_tool", function(event, data)
+    rig.print("[hook] tool: " .. data.tool)
+    return true
 end)
 
 -- later:
@@ -99,6 +172,68 @@ local response = rig.completion({
 rig.print("Translation: " .. response)
 ```
 
+### Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `messages` | array | required | `{role, content}` pairs |
+| `system` | string | nil | System prompt |
+| `model` | string | current model | Substring match (e.g. `"haiku"`, `"sonnet"`) |
+| `max_tokens` | integer | model default | Max output tokens |
+| `temperature` | number | -1 (provider default) | 0.0-1.0, ignored if provider doesn't support |
+
+```lua
+-- Use a cheap model for background tasks
+local summary = rig.completion({
+    model = "haiku",
+    temperature = 0,
+    max_tokens = 200,
+    system = "Summarize in one sentence.",
+    messages = {{role = "user", content = long_text}},
+})
+```
+
+## Message Splicing
+
+Replace, remove, or insert messages in the conversation history:
+
+```lua
+-- Remove messages 3 through 7 (delete 5 starting at index 3)
+rig.set("messages", "splice", {start = 3, delete = 5})
+
+-- Replace messages 2-4 with a single summary
+rig.set("messages", "splice", {
+    start = 2,
+    delete = 3,
+    messages = {
+        {role = "user", content = "[earlier conversation summarized]"},
+    }
+})
+
+-- Insert at position 1 without deleting
+rig.set("messages", "splice", {start = 1, delete = 0, messages = {
+    {role = "user", content = "Context: ..."}
+}})
+```
+
+Cannot splice while the model is streaming (returns error).
+
+## Event Bus
+
+Extensions can communicate via publish/subscribe:
+
+```lua
+-- Publisher extension
+rig.publish("memory:saved", {path = "/tmp/mem.md", tokens = 150})
+
+-- Subscriber extension
+rig.subscribe("memory:*", function(topic, data)
+    rig.print("[memory] " .. topic .. " at " .. data.path)
+end)
+```
+
+Wildcard patterns match topic prefixes.
+
 ## JSON
 
 A `json` global is available:
@@ -117,7 +252,7 @@ Extensions run in a **sandboxed** Lua environment. The following globals are **r
 | Removed | Why | Use instead |
 |---------|-----|-------------|
 | `os` | No direct OS access | `rig.exec(cmd)` |
-| `io` | No file I/O | `rig.exec("cat file")` |
+| `io` | No file I/O | `rig.read_file()` / `rig.write_file()` |
 | `loadfile` | No arbitrary code loading | - |
 | `dofile` | No arbitrary code loading | - |
 | `debug` | No debug introspection | - |
@@ -129,19 +264,22 @@ This means **you cannot use**:
 
 ### Reading/writing files
 
+Native file I/O (no shell overhead, handles binary safely):
+
 ```lua
--- read
+-- read (returns nil + error on failure, 10MB limit)
+local content, err = rig.read_file("/path/to/file")
+if not content then rig.print("error: " .. err, {error=true}) end
+
+-- write (returns boolean)
+local ok = rig.write_file("/path/to/file", content)
+```
+
+Shell-based alternative (for pipes, globs, etc.):
+
+```lua
 local r = rig.exec("cat /path/to/file")
-if r.ok then
-    local contents = r.stdout
-end
-
--- write (use printf to avoid echo escaping issues)
-rig.exec("printf '%s' '" .. encoded_content .. "' > /path/to/file")
-
--- or safer, use base64 for arbitrary content:
-local data = b64encode(content)
-rig.exec("echo '" .. data .. "' | base64 -d > /path/to/file")
+if r.ok then local contents = r.stdout end
 ```
 
 ### Clipboard
