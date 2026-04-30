@@ -551,22 +551,41 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 if (allocated_key) opts.base.api_key = allocated_key;
             }
 
+            bool skip_api_call = false;
             if (config->hooks) {
                 cJSON *hd = cJSON_CreateObject();
                 cJSON_AddNumberToObject(hd, "message_count", converted_count);
                 cJSON_AddStringToObject(hd, "model", config->model ? config->model->id : "unknown");
-                hook_chain_fire(config->hooks, "pre_api_call", hd, NULL);
+                cJSON *hook_result = NULL;
+                hook_chain_fire(config->hooks, "pre_api_call", hd, &hook_result);
                 cJSON_Delete(hd);
+                if (hook_result) {
+                    cJSON *ab = cJSON_GetObjectItem(hook_result, "abort");
+                    if (ab && cJSON_IsTrue(ab)) {
+                        cJSON_Delete(hook_result);
+                        free(flat_msgs);
+                        free(allocated_key);
+                        if (converted != llm_msgs) free(converted);
+                        state->abort_requested = true;
+                        break;
+                    }
+                    cJSON *sk = cJSON_GetObjectItem(hook_result, "skip");
+                    if (sk && cJSON_IsTrue(sk))
+                        skip_api_call = true;
+                    cJSON_Delete(hook_result);
+                }
             }
 
-            state->is_streaming = true;
             StreamBridge bridge = { .state = state, .cb = cb, .userdata = userdata, .final_message = NULL };
+            if (!skip_api_call) {
+                state->is_streaming = true;
 
-            ai_stream_simple(config->model, flat_msgs, converted_count,
-                            state->system_prompt, state->tools, state->tool_count,
-                            &opts, stream_bridge_cb, &bridge);
+                ai_stream_simple(config->model, flat_msgs, converted_count,
+                                state->system_prompt, state->tools, state->tool_count,
+                                &opts, stream_bridge_cb, &bridge);
 
-            state->is_streaming = false;
+                state->is_streaming = false;
+            }
             free(flat_msgs);
             free(allocated_key);
 
@@ -644,8 +663,32 @@ static int run_loop(AgentState *state, AgentLoopConfig *config,
                 cJSON *hd = cJSON_CreateObject();
                 cJSON_AddNumberToObject(hd, "message_count", state->message_count);
                 cJSON_AddBoolToObject(hd, "has_tool_calls", has_more_tool_calls);
-                hook_chain_fire(config->hooks, "turn_end", hd, NULL);
+                cJSON *hook_result = NULL;
+                hook_chain_fire(config->hooks, "turn_end", hd, &hook_result);
                 cJSON_Delete(hd);
+                if (hook_result) {
+                    cJSON *cont = cJSON_GetObjectItem(hook_result, "continue_loop");
+                    if (cont && cJSON_IsTrue(cont))
+                        has_more_tool_calls = true;
+                    cJSON *inject = cJSON_GetObjectItem(hook_result, "inject_messages");
+                    if (inject && cJSON_IsArray(inject)) {
+                        cJSON *item;
+                        cJSON_ArrayForEach(item, inject) {
+                            cJSON *r = cJSON_GetObjectItem(item, "role");
+                            cJSON *c = cJSON_GetObjectItem(item, "content");
+                            if (!r || !c || !cJSON_IsString(r) || !cJSON_IsString(c)) continue;
+                            Message *msg = NULL;
+                            if (strcmp(r->valuestring, "user") == 0)
+                                msg = message_create_user(c->valuestring);
+                            else if (strcmp(r->valuestring, "assistant") == 0) {
+                                msg = message_create_assistant();
+                                if (msg) message_add_content(msg, content_text(c->valuestring, NULL));
+                            }
+                            if (msg) agent_state_add_message(state, msg);
+                        }
+                    }
+                    cJSON_Delete(hook_result);
+                }
             }
 
             AgentEvent turn_end = { .type = AGENT_EVENT_TURN_END, .message = assistant };
