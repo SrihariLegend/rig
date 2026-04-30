@@ -615,11 +615,6 @@ static char *tool_arg_summary(const char *name, cJSON *args) {
         cJSON *pat = cJSON_GetObjectItem(args, "pattern");
         return (pat && cJSON_IsString(pat)) ? strdup(pat->valuestring) : NULL;
     }
-    if (strcmp(name, "ls") == 0) {
-        cJSON *p = cJSON_GetObjectItem(args, "path");
-        return (p && cJSON_IsString(p)) ? strdup(p->valuestring) : NULL;
-    }
-
     /* Extension tools: stringify first string arg */
     cJSON *child = args->child;
     while (child) {
@@ -1211,8 +1206,7 @@ static bool handle_slash_command(InteractiveState *state) {
             state->perms = permissions_create();
             permissions_trust(state->perms, "read", NULL);
             permissions_trust(state->perms, "grep", NULL);
-            permissions_trust(state->perms, "ls", NULL);
-            cmd_output(state, "trust reset to defaults (read/grep/ls)");
+            cmd_output(state, "trust reset to defaults (read/grep)");
         } else if (strcmp(arg, "yolo") == 0) {
             permissions_trust(state->perms, "*", NULL);
             cmd_output(state, "TRUST ALL — no more permission prompts");
@@ -2299,7 +2293,6 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
     state->tools[state->tool_count++] = tool_write_create();
     state->tools[state->tool_count++] = tool_edit_create();
     state->tools[state->tool_count++] = tool_grep_create();
-    state->tools[state->tool_count++] = tool_ls_create();
     state->tools[state->tool_count++] = tool_introspect_create();
 
     state->agent->tools = state->tools;

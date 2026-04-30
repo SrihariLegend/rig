@@ -239,7 +239,6 @@ int main(int argc, char **argv) {
         tools[tool_count++] = tool_write_create();
         tools[tool_count++] = tool_edit_create();
         tools[tool_count++] = tool_grep_create();
-        tools[tool_count++] = tool_ls_create();
     }
 
     ThinkingLevel thinking = parse_thinking(thinking_str);
