@@ -1017,6 +1017,83 @@ static int lua_rig_subscribe(lua_State *L) {
 }
 
 /* ============================================================
+ *  Spawn: rig.spawn(cmd, opts?) → process userdata
+ * ============================================================ */
+
+#define SPAWN_META "rig.SpawnedProcess"
+#define MAX_SPAWNED 16
+
+static int lua_spawn_write(lua_State *L) {
+    SpawnedProcess *sp = (SpawnedProcess *)luaL_checkudata(L, 1, SPAWN_META);
+    size_t len;
+    const char *data = luaL_checklstring(L, 2, &len);
+    lua_pushboolean(L, process_spawn_write(sp, data, len) == 0);
+    return 1;
+}
+
+static int lua_spawn_read_line(lua_State *L) {
+    SpawnedProcess *sp = (SpawnedProcess *)luaL_checkudata(L, 1, SPAWN_META);
+    int timeout = (int)luaL_optinteger(L, 2, 30000);
+    char *line = NULL;
+    int rc = process_spawn_read_line(sp, &line, timeout);
+    if (rc == 0 && line) {
+        lua_pushstring(L, line);
+        free(line);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+static int lua_spawn_close(lua_State *L) {
+    SpawnedProcess *sp = (SpawnedProcess *)luaL_checkudata(L, 1, SPAWN_META);
+    process_spawn_close(sp);
+    return 0;
+}
+
+static int lua_spawn_is_alive(lua_State *L) {
+    SpawnedProcess *sp = (SpawnedProcess *)luaL_checkudata(L, 1, SPAWN_META);
+    lua_pushboolean(L, sp->alive);
+    return 1;
+}
+
+static int lua_spawn_gc(lua_State *L) {
+    SpawnedProcess *sp = (SpawnedProcess *)luaL_checkudata(L, 1, SPAWN_META);
+    process_spawn_close(sp);
+    return 0;
+}
+
+static const struct luaL_Reg spawn_methods[] = {
+    {"write",     lua_spawn_write},
+    {"read_line", lua_spawn_read_line},
+    {"close",     lua_spawn_close},
+    {"is_alive",  lua_spawn_is_alive},
+    {"__gc",      lua_spawn_gc},
+    {NULL, NULL},
+};
+
+static int lua_rig_spawn(lua_State *L) {
+    const char *cmd = luaL_checkstring(L, 1);
+    RigLuaContext *ctx = get_ctx(L);
+    const char *cwd = ctx ? ctx->cwd : NULL;
+
+    SpawnedProcess *sp = (SpawnedProcess *)lua_newuserdata(L, sizeof(SpawnedProcess));
+    memset(sp, 0, sizeof(*sp));
+
+    if (luaL_newmetatable(L, SPAWN_META)) {
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -2, "__index");
+        luaL_setfuncs(L, spawn_methods, 0);
+    }
+    lua_setmetatable(L, -2);
+
+    if (process_spawn(sp, cmd, cwd) != 0) {
+        return luaL_error(L, "spawn failed: %s", cmd);
+    }
+    return 1;
+}
+
+/* ============================================================
  *  Register the rig global
  * ============================================================ */
 
@@ -1033,6 +1110,7 @@ static const struct luaL_Reg rig_methods[] = {
     {"write_file", lua_rig_write_file},
     {"publish",    lua_rig_publish},
     {"subscribe",  lua_rig_subscribe},
+    {"spawn",      lua_rig_spawn},
     {NULL, NULL},
 };
 

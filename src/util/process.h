@@ -26,4 +26,17 @@ typedef struct {
 int process_run(const ProcessOptions *opts, ProcessResult *result);
 int process_kill(pid_t pid);
 
+/* Persistent subprocess with bidirectional pipes */
+typedef struct {
+    pid_t pid;
+    int stdin_fd;
+    int stdout_fd;
+    bool alive;
+} SpawnedProcess;
+
+int process_spawn(SpawnedProcess *sp, const char *command, const char *cwd);
+int process_spawn_write(SpawnedProcess *sp, const char *data, size_t len);
+int process_spawn_read_line(SpawnedProcess *sp, char **out, int timeout_ms);
+void process_spawn_close(SpawnedProcess *sp);
+
 #endif
