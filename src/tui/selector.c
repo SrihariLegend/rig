@@ -20,18 +20,16 @@ int tui_selector(const char **items, int count, int initial) {
     for (;;) {
         /* Render list */
         for (int i = 0; i < visible; i++) {
+            char buf[512];
+            int n;
             if (i == sel) {
-                /* Highlight: reverse video */
-                char buf[512];
-                int n = snprintf(buf, sizeof(buf), "\033[7m  %.*s  \033[0m\r\n",
-                                 (int)(sizeof(buf) - 20), items[i]);
-                write(STDOUT_FILENO, buf, (size_t)n);
+                n = snprintf(buf, sizeof(buf), "\033[2K\r\033[7m  %.*s  \033[0m\r\n",
+                             (int)(sizeof(buf) - 20), items[i]);
             } else {
-                char buf[512];
-                int n = snprintf(buf, sizeof(buf), "  %.*s  \r\n",
-                                 (int)(sizeof(buf) - 10), items[i]);
-                write(STDOUT_FILENO, buf, (size_t)n);
+                n = snprintf(buf, sizeof(buf), "\033[2K\r  %.*s  \r\n",
+                             (int)(sizeof(buf) - 10), items[i]);
             }
+            write(STDOUT_FILENO, buf, (size_t)n);
         }
 
         /* Read key */

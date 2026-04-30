@@ -656,115 +656,80 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
         bool trusted = permissions_check(state->perms, name, summary);
 
         if (!trusted) {
-            /* Show tool call and ask for permission */
+            /* Show tool call description */
             char *desc = permissions_describe_call(name, summary);
 
             pthread_mutex_lock(&state->mutex);
             linestore_add_system(state->store, desc);
-            linestore_add_system(state->store, "allow? [y]es / [n]o / [t]rust tool / [a]llow pattern / [!] trust all");
             state->needs_render = true;
             pthread_mutex_unlock(&state->mutex);
 
             free(desc);
 
-            /* Claim stdin — main thread will skip stdin polling */
-            state->permission_pending = true;
-
-            struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
-            char response = 0;
-            while (!response) {
-                int ready = poll(&pfd, 1, 100);
-                if (ready > 0 && (pfd.revents & POLLIN)) {
-                    char ch[64];
-                    ssize_t n = read(STDIN_FILENO, ch, sizeof(ch) - 1);
-                    if (n > 0) {
-                        ch[n] = '\0';
-                        /* Parse properly — ignore mouse/escape sequences */
-                        ParsedKey pk = key_parse(ch, (int)n);
-                        if (key_matches(&pk, "mouse") || key_matches(&pk, "scrollup") ||
-                            key_matches(&pk, "scrolldown")) {
-                            continue;  /* ignore mouse events */
-                        }
-                        char c = ch[0];
-                        if (n > 1 && ch[0] == '\x1b') c = 0;  /* ignore other escape sequences */
-                        switch (c) {
-                        case 'y': case 'Y': case '\r': case '\n':
-                            response = 'y';
-                            break;
-                        case 'n': case 'N': case '\x03':
-                            response = 'n';
-                            break;
-                        case 't': case 'T':
-                            /* Trust this entire tool */
-                            permissions_trust(state->perms, name, NULL);
-                            response = 'y';
-                            pthread_mutex_lock(&state->mutex);
-                            {
-                                char tbuf[128];
-                                snprintf(tbuf, sizeof(tbuf), "trusted: %s (all)", name);
-                                linestore_add_system(state->store, tbuf);
-                                state->needs_render = true;
-                            }
-                            pthread_mutex_unlock(&state->mutex);
-                            break;
-                        case 'a': case 'A':
-                            /* Trust this tool with pattern */
-                            if (summary) {
-                                /* For bash: trust "command_prefix *" */
-                                char *space = strchr(summary, ' ');
-                                if (space && strcmp(name, "bash") == 0) {
-                                    size_t prefix_len = (size_t)(space - summary);
-                                    char *pattern = malloc(prefix_len + 3);
-                                    memcpy(pattern, summary, prefix_len);
-                                    pattern[prefix_len] = ' ';
-                                    pattern[prefix_len + 1] = '*';
-                                    pattern[prefix_len + 2] = '\0';
-                                    permissions_trust(state->perms, name, pattern);
-                                    pthread_mutex_lock(&state->mutex);
-                                    {
-                                        char tbuf[256];
-                                        snprintf(tbuf, sizeof(tbuf), "trusted: %s '%s'", name, pattern);
-                                        linestore_add_system(state->store, tbuf);
-                                        state->needs_render = true;
-                                    }
-                                    pthread_mutex_unlock(&state->mutex);
-                                    free(pattern);
-                                } else {
-                                    /* For file tools: trust exact path */
-                                    permissions_trust(state->perms, name, summary);
-                                    pthread_mutex_lock(&state->mutex);
-                                    {
-                                        char tbuf[256];
-                                        snprintf(tbuf, sizeof(tbuf), "trusted: %s '%s'", name, summary);
-                                        linestore_add_system(state->store, tbuf);
-                                        state->needs_render = true;
-                                    }
-                                    pthread_mutex_unlock(&state->mutex);
-                                }
-                            } else {
-                                /* No summary — fall back to trusting entire tool */
-                                permissions_trust(state->perms, name, NULL);
-                            }
-                            response = 'y';
-                            break;
-                        case '!':
-                            /* Yolo mode — trust everything */
-                            permissions_trust(state->perms, "*", NULL);
-                            response = 'y';
-                            pthread_mutex_lock(&state->mutex);
-                            linestore_add_system(state->store, "trusted: ALL tools");
-                            state->needs_render = true;
-                            pthread_mutex_unlock(&state->mutex);
-                            break;
-                        }
-                    }
+            /* Build permission options for selector */
+            char pattern_label[256];
+            if (summary && strcmp(name, "bash") == 0) {
+                char *space = strchr(summary, ' ');
+                if (space) {
+                    int prefix_len = (int)(space - summary);
+                    snprintf(pattern_label, sizeof(pattern_label),
+                             "Always allow: %s '%.*s *'", name, prefix_len, summary);
+                } else {
+                    snprintf(pattern_label, sizeof(pattern_label),
+                             "Always allow: %s '%s'", name, summary);
                 }
+            } else if (summary) {
+                snprintf(pattern_label, sizeof(pattern_label),
+                         "Always allow: %s '%s'", name, summary);
+            } else {
+                snprintf(pattern_label, sizeof(pattern_label),
+                         "Always allow: %s (this pattern)", name);
             }
 
-            state->permission_pending = false;
-            free(summary);
+            char tool_label[128];
+            snprintf(tool_label, sizeof(tool_label), "Always allow: %s (all)", name);
 
-            if (response == 'n') {
+            const char *options[] = {
+                "Allow",
+                pattern_label,
+                tool_label,
+                "Deny",
+            };
+
+            state->permission_pending = true;
+            int chosen = tui_selector(options, 4, 0);
+            state->permission_pending = false;
+            lantern_renderer_render_full(state->renderer);
+
+            switch (chosen) {
+            case 0: /* Allow once */
+                break;
+            case 1: /* Always allow pattern */
+                if (summary && strcmp(name, "bash") == 0) {
+                    char *space = strchr(summary, ' ');
+                    if (space) {
+                        size_t prefix_len = (size_t)(space - summary);
+                        char *pattern = malloc(prefix_len + 3);
+                        memcpy(pattern, summary, prefix_len);
+                        pattern[prefix_len] = ' ';
+                        pattern[prefix_len + 1] = '*';
+                        pattern[prefix_len + 2] = '\0';
+                        permissions_trust(state->perms, name, pattern);
+                        free(pattern);
+                    } else {
+                        permissions_trust(state->perms, name, summary);
+                    }
+                } else if (summary) {
+                    permissions_trust(state->perms, name, summary);
+                } else {
+                    permissions_trust(state->perms, name, NULL);
+                }
+                break;
+            case 2: /* Always allow tool */
+                permissions_trust(state->perms, name, NULL);
+                break;
+            default: /* Deny (chosen == 3 or -1/cancelled) */
+                free(summary);
                 result->block = true;
                 result->reason = strdup("denied by user");
                 pthread_mutex_lock(&state->mutex);
@@ -774,6 +739,7 @@ static int before_tool(BeforeToolCallContext *ctx, BeforeToolCallResult *result)
                 return 0;
             }
 
+            free(summary);
             pthread_mutex_lock(&state->mutex);
             linestore_add_system(state->store, "allowed");
             state->needs_render = true;
@@ -2584,9 +2550,10 @@ int interactive_mode_start(RigInstance *rig, const char *session_id,
 
         pthread_mutex_lock(&state->mutex);
         bool do_render = state->needs_render || state->renderer->dirty;
+        bool render_blocked = state->permission_pending;
         state->needs_render = false;
         pthread_mutex_unlock(&state->mutex);
-        if (do_render) {
+        if (do_render && !render_blocked) {
             lantern_renderer_render(state->renderer);
         }
     }
