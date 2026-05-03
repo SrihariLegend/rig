@@ -6,7 +6,7 @@
 
 A coding agent that runs anywhere, connects to everything, and gets out of your way.
 
-**~23K lines of C. 566KB binary. Zero runtime dependencies. Every major LLM provider. Extensible via Lua.**
+**~23K lines of C. ~600KB binary. Zero runtime dependencies. Every major LLM provider. Extensible via Lua.**
 
 Rig is a coding agent written in C. One binary, no runtime deps, works with every major LLM provider.
 
