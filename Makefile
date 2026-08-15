@@ -43,7 +43,7 @@ AI_OBJ = $(AI_SRC:.c=.o)
 AGENT_SRC = src/agent/agent.c
 AGENT_OBJ = $(AGENT_SRC:.c=.o)
 
-HARNESS_SRC = src/harness/config.c src/harness/auth.c src/harness/system_prompt.c \
+HARNESS_SRC = src/harness/config.c src/harness/auth.c src/harness/auth_oauth.c src/harness/system_prompt.c \
               src/harness/session.c src/harness/skills.c src/harness/prompts.c \
               src/harness/themes.c src/harness/packages.c src/harness/settings.c \
               src/harness/slash_commands.c src/harness/output_guard.c \

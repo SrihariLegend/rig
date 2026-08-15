@@ -78,45 +78,82 @@ Intermediate objects are created automatically when setting nested paths.
 
 ## Authentication
 
-### Interactive Setup
+Rig's auth system is a port of pi's layered architecture: a multi-provider
+credential store, a per-provider auth registry (API key and/or OAuth), and a
+UI-agnostic login interaction contract.
+
+### Commands
 
 ```bash
-rig auth          # choose provider, enter API key
-rig auth status   # show current config
-rig auth logout   # remove saved credentials
+rig auth                              # interactive login (pick provider + method)
+rig auth status                       # show stored + ambient credentials
+rig auth check --provider <p> [--json] [--credentials] [--no-refresh]
+rig auth print-api-key --provider <p> [--model <m>]
+rig auth print-bearer-token --provider <p> [--min-expiry 30m]
+rig auth logout [--provider <p>]      # logout one or all providers
 ```
 
-The interactive flow presents a menu of 9 providers:
+`check` exits 0 (ready) / 1 (not_ready) / 2 (invalid). `print-api-key` and
+`print-bearer-token` resolve and print a credential for scripting; OAuth bearer
+tokens are refreshed when `--min-expiry` demands it. `--model` resolves the
+provider via the model registry.
 
-1. Anthropic
-2. OpenAI
-3. Google
-4. Mistral
-5. AWS Bedrock
-6. DeepSeek
-7. xAI
-8. Groq
-9. OpenRouter
+### Interactive login
 
-API keys are stored in `~/.rig/agent/auth.json` with restricted file permissions (0600).
+`rig auth` lists every registered provider, marks which offer OAuth
+(subscription) vs API key, and lets you pick. If a provider supports both, you
+choose the method. After login, Rig discovers and prints the models available
+for that provider (builtin models, or a note to add custom models via
+`~/.rig/agent/models.json`).
 
-### Environment Variables
+### Credential storage
 
-Each provider checks specific environment variables (in priority order):
+Credentials live in `~/.rig/agent/auth.json` (0600, parent dir 0700), keyed by
+provider id, one credential per provider:
+
+```json
+{
+  "anthropic": { "type": "oauth", "access": "...", "refresh": "...", "expires": 1730000000000 },
+  "openai":    { "type": "api_key", "key": "sk-..." },
+  "bedrock":   { "type": "api_key", "env": { "AWS_ACCESS_KEY_ID": "...", "AWS_SECRET_ACCESS_KEY": "...", "AWS_REGION": "us-east-1" } }
+}
+```
+
+Writes are serialized per provider through a file lock (`auth.json.lock`).
+
+### Resolution
+
+A stored credential owns the provider: ambient env vars are consulted only when
+nothing is stored. OAuth tokens refresh automatically under the store lock when
+within 5 minutes of expiry (double-checked so concurrent requests don't
+double-refresh). API-key credentials may carry a provider-scoped `env` map
+(e.g. Cloudflare account id, Bedrock AWS keys).
+
+### Environment variables (ambient fallback)
 
 | Provider | Env Vars |
 |----------|----------|
-| Anthropic | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_ARIG_KEY` |
-| OpenAI | `OPENAI_ARIG_KEY` |
-| Google | `GOOGLE_ARIG_KEY`, `GEMINI_ARIG_KEY` |
-| Mistral | `MISTRAL_ARIG_KEY` |
-| DeepSeek | `DEEPSEEK_ARIG_KEY` |
-| xAI | `XAI_ARIG_KEY` |
-| Groq | `GROQ_ARIG_KEY` |
-| OpenRouter | `OPENROUTER_ARIG_KEY` |
-| AWS Bedrock | `AWS_BEARER_TOKEN_BEDROCK`, `BEDROCK_ARIG_KEY`, `AWS_ACCESS_KEY_ID` |
+| Anthropic | `ANTHROPIC_AUTH_TOKEN` (Bearer), `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google | `GEMINI_API_KEY` |
+| Google Vertex | `GOOGLE_CLOUD_API_KEY` (or ADC) |
+| DeepSeek | `DEEPSEEK_API_KEY` |
+| Mistral | `MISTRAL_API_KEY` |
+| xAI | `XAI_API_KEY` |
+| Groq | `GROQ_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| AWS Bedrock | `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`+`AWS_SECRET_ACCESS_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, ECS/IRSA vars |
+| GitHub Copilot | `COPILOT_GITHUB_TOKEN` |
 
-Bedrock also supports IAM credentials (access key, secret key, region, session token) configured via `rig auth`.
+### OAuth flows
+
+Subscription/browser flows: Anthropic (Claude Pro/Max), OpenAI Codex
+(ChatGPT), xAI (SuperGrok/X Premium), OpenRouter, Radius, Kimi Coding, GitHub
+Copilot. PKCE-callback flows spin up a loopback HTTP server and race a manual
+paste prompt for headless sessions; device-code flows poll per RFC 8628.
+
+Bedrock also supports IAM credentials (access key, secret key, region, session
+token) configured interactively via `rig auth`.
 
 ## Permissions and Trust Rules
 
